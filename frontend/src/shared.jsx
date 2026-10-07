@@ -53,7 +53,7 @@ function Stats({ data }) {
   })}</div></div>;
 }
 function Lineup({ data }) {
-  return <div className="lineup-module"><ModuleHeading eyebrow="STARTING XI">ラインナップ</ModuleHeading><div className="lineup-columns">{['home', 'away'].map(side => <div key={side}><div className="lineup-team"><b>{data[side]?.name || side}</b><span>{data[side]?.formation || '—'}</span></div><div className="players-list">{(data[side]?.players || []).slice(0, 11).map((player, i) => <div key={`${player.name}-${i}`}><span className="shirt">{player.shirtNumber ?? '·'}</span><span>{player.name}</span><small>{player.position || ''}</small></div>)}</div></div>)}</div></div>;
+  return <div className="lineup-module"><ModuleHeading eyebrow="STARTING XI">ラインナップ</ModuleHeading><div className="lineup-columns">{['home', 'away'].map(side => <div key={side}><div className="lineup-team"><b>{data[side]?.name || side}</b><span>{data[side]?.formation || '—'}</span></div><div className="players-list">{data[side]?.players?.length ? data[side].players.slice(0, 11).map((player, i) => <div key={`${player.name}-${i}`}><span className="shirt">{player.shirtNumber ?? '·'}</span><span>{player.name}</span><small>{player.position || ''}</small></div>) : <div className="lineup-empty-note" role="status"><Users size="1.2em" /><span>スタメン情報はまだありません</span></div>}</div></div>)}</div></div>;
 }
 function Fixtures({ data, timezone }) {
   const list = Array.isArray(data) ? data : [];
