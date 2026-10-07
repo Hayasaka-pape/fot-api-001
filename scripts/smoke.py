@@ -7,6 +7,35 @@ import urllib.request
 import zipfile
 
 
+def assert_current_demo_players(lineup):
+    """The 67-minute demo includes known substitutions, with initial XI kept."""
+    assert lineup["view"] == "onPitch", lineup
+    assert lineup["state"] == "live", lineup
+    substitutions = {
+        "home": [
+            ("9000002", "Reece James", "9000021", "Malo Gusto", "46′"),
+            ("9000009", "Pedro Neto", "9000022", "Alejandro Garnacho", "62′"),
+        ],
+        "away": [
+            ("9001009", "Bernardo Silva", "9001021", "Rayan Cherki", "64′"),
+        ],
+    }
+    for side, changes in substitutions.items():
+        team = lineup[side]
+        assert team["tracking"] == "current", team
+        assert team["formationSource"] == "starting", team
+        assert len(team["players"]) == len(team["startingPlayers"]) == 11, team
+        current = {str(player["id"]): player for player in team["players"]}
+        starting = {str(player["id"]): player for player in team["startingPlayers"]}
+        assert len(current) == len(starting) == 11, team
+        for out_id, out_name, in_id, in_name, entered_at in changes:
+            assert out_id in starting and starting[out_id]["name"] == out_name, team
+            assert out_id not in current, (out_name, current)
+            assert in_id in current and current[in_id]["name"] == in_name, team
+            assert in_id not in starting, (in_name, starting)
+            assert current[in_id]["enteredAt"] == entered_at, current[in_id]
+
+
 def run(base_url: str) -> None:
     base_url = base_url.rstrip("/")
 
@@ -68,6 +97,7 @@ def run(base_url: str) -> None:
         raise AssertionError("Invalid match-options dates must be rejected with HTTP 422")
     print("PASS match-options calendar date validation")
 
+    demo_lineup = None
     for kind in ("match", "date", "team", "league"):
         result = request("/api/query", {
             "kind": kind, "id": "5315746" if kind == "match" else "47",
@@ -76,16 +106,21 @@ def run(base_url: str) -> None:
         assert result["source"] == "demo", result
         assert result["modules"], kind
         assert result["fetchedAt"]
+        if kind == "match":
+            demo_lineup = result["modules"]["lineup"]
+            assert_current_demo_players(demo_lineup)
         print(f"PASS demo query: {kind}")
+    print("PASS substitutions remove outgoing players, add incoming players and retain initial XI")
 
     query = {"kind": "match", "id": "5315746", "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10}
     payload = {
-        "name": "Docker smoke scene", "query": query, "sections": ["scoreboard", "stats"],
+        "name": "Docker smoke scene", "query": query, "sections": ["scoreboard", "stats", "lineup"],
         "canvas": {"width": 1920, "height": 1080, "background": "transparent"},
         "theme": {"accent": "#36e3b0", "background": "#101822", "text": "#ffffff", "opacity": .95},
         "widgets": [
             {"id": "scoreboard", "section": "scoreboard", "x": 48, "y": 48, "width": 1100, "height": 220, "fontSize": 24},
             {"id": "stats", "section": "stats", "x": 48, "y": 300, "width": 500, "height": 650, "fontSize": 22},
+            {"id": "lineup", "section": "lineup", "x": 600, "y": 300, "width": 1200, "height": 650, "fontSize": 22},
         ], "pollInterval": 30,
     }
     scene = request("/api/scenes", payload)
@@ -96,17 +131,22 @@ def run(base_url: str) -> None:
         assert request(f"/api/scenes/{scene_id}", payload, "PUT")["name"] == payload["name"]
         assert any(item["id"] == scene_id for item in request("/api/scenes"))
         result = request(f"/api/scenes/{scene_id}/data")
-        assert set(result["modules"]) <= {"scoreboard", "stats"}, result["modules"].keys()
+        assert set(result["modules"]) <= {"scoreboard", "stats", "lineup"}, result["modules"].keys()
         assert "scoreboard" in result["modules"]
+        assert_current_demo_players(result["modules"]["lineup"])
+        assert result["modules"]["lineup"] == demo_lineup
         html = request(f"/overlay/{scene_id}")
         assert b"<html" in html and b"<script" in html
         with zipfile.ZipFile(io.BytesIO(request(f"/api/scenes/{scene_id}/export"))) as archive:
             required = {"index.html", "style.css", "overlay.js", "data.json", "config.json"}
             assert required <= set(archive.namelist()), archive.namelist()
             exported = json.loads(archive.read("data.json"))
-            assert set(exported["modules"]) <= {"scoreboard", "stats"}
+            assert set(exported["modules"]) <= {"scoreboard", "stats", "lineup"}
+            assert_current_demo_players(exported["modules"]["lineup"])
+            assert exported["modules"]["lineup"] == result["modules"]["lineup"]
+            assert json.loads(archive.read("config.json"))["snapshot"] is True
             assert json.loads(archive.read("config.json"))["canvas"]["width"] == 1920
-        print("PASS scene CRUD, selected JSON, OBS route, HTML/CSS/JS/JSON export")
+        print("PASS scene CRUD, selected JSON, OBS route and snapshot export retain current players")
     finally:
         request(f"/api/scenes/{scene_id}", method="DELETE")
 

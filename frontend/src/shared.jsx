@@ -1,7 +1,7 @@
 import React from 'react';
 import { Shield, Users, Trophy, MapPin, CalendarDays } from 'lucide-react';
 
-export const SECTION_NAMES = { scoreboard: 'スコアボード', stats: '試合スタッツ', lineup: 'ラインナップ', fixtures: '試合日程', standings: '順位表', team: 'チーム情報', league: 'リーグ情報', squad: '選手一覧' };
+export const SECTION_NAMES = { scoreboard: 'スコアボード', stats: '試合スタッツ', lineup: '出場選手', fixtures: '試合日程', standings: '順位表', team: 'チーム情報', league: 'リーグ情報', squad: '選手一覧' };
 export const KINDS = { match: { label: '試合', sections: ['scoreboard', 'stats', 'lineup', 'fixtures'], icon: 'match' }, date: { label: '日付別', sections: ['fixtures'], icon: 'date' }, team: { label: 'チーム', sections: ['team', 'fixtures', 'squad', 'stats', 'standings'], icon: 'team' }, league: { label: 'リーグ', sections: ['league', 'standings', 'fixtures', 'stats'], icon: 'league' } };
 export const INITIAL_QUERY = { kind: 'match', id: '5315746', date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' }), timezone: 'Asia/Tokyo', timeout: 15, mode: 'demo' };
 export const DEFAULT_WIDGETS = {
@@ -53,7 +53,24 @@ function Stats({ data }) {
   })}</div></div>;
 }
 function Lineup({ data }) {
-  return <div className="lineup-module"><ModuleHeading eyebrow="STARTING XI">ラインナップ</ModuleHeading><div className="lineup-columns">{['home', 'away'].map(side => <div key={side}><div className="lineup-team"><b>{data[side]?.name || side}</b><span>{data[side]?.formation || '—'}</span></div><div className="players-list">{data[side]?.players?.length ? data[side].players.slice(0, 11).map((player, i) => <div key={`${player.name}-${i}`}><span className="shirt">{player.shirtNumber ?? '·'}</span><span>{player.name}</span><small>{player.position || ''}</small></div>) : <div className="lineup-empty-note" role="status"><Users size="1.2em" /><span>スタメン情報はまだありません</span></div>}</div></div>)}</div></div>;
+  const legacy = !data.state, state = data.state || 'starting';
+  const titles = { live: '現在の出場選手', final: '試合終了時の出場選手', starting: legacy ? '先発名簿（参考）' : '試合前の先発選手', uncertain: '出場選手', unavailable: '出場選手' };
+  const eyebrows = { live: 'ON THE PITCH', final: 'FULL TIME', starting: 'STARTING XI', uncertain: 'PLAYER TRACKING', unavailable: 'PLAYERS' };
+  return <div className="lineup-module">
+    <ModuleHeading eyebrow={eyebrows[state] || 'PLAYERS'}>{titles[state] || '出場選手'}</ModuleHeading>
+    <div className="lineup-columns">{['home', 'away'].map(side => {
+      const team = data[side] || {}, players = Array.isArray(team.players) ? team.players : [];
+      const tracking = team.tracking || (state === 'starting' ? 'starting' : state === 'uncertain' ? 'uncertain' : 'current');
+      const unavailable = state === 'unavailable', uncertain = !unavailable && tracking === 'uncertain';
+      const label = uncertain ? '交代状況 未確認' : unavailable ? '選手情報 未提供' : tracking === 'starting' || state === 'starting' ? legacy ? '先発名簿（参考）' : '試合前の先発' : state === 'final' ? '試合終了時の出場選手' : state === 'live' ? '現在の出場選手' : '交代を反映した選手';
+      const statusClass = uncertain ? 'uncertain' : unavailable ? 'unavailable' : state === 'final' ? 'final' : tracking;
+      return <div key={side}>
+        <div className="lineup-team"><b>{team.name || side}</b><span>{team.formation ? `開始時 ${team.formation}` : '—'}</span></div>
+        <div className={`lineup-roster-state ${statusClass}`}><span><i />{label}</span><small>{players.length ? players.length > 11 ? `表示 11 / ${players.length} 人` : `${players.length} 人` : '—'}</small></div>
+        <div className="players-list">{players.length ? players.slice(0, 11).map((player, i) => <div key={player.id || `${player.name}-${i}`}><span className="shirt">{player.shirtNumber ?? '·'}</span><span>{player.name}</span>{player.enteredAt != null && player.enteredAt !== '' && <span className="incoming-badge">IN {String(player.enteredAt)}</span>}<small>{player.position || ''}</small></div>) : <div className={`lineup-empty-note ${uncertain ? 'uncertain-note' : ''}`} role="status">{uncertain ? <Shield size="1.2em" /> : <Users size="1.2em" />}<span>{uncertain ? '交代状況を確認できません' : '選手情報はまだありません'}{uncertain && <small>選手一覧の表示を保留しています</small>}</span></div>}</div>
+      </div>;
+    })}</div>
+  </div>;
 }
 function Fixtures({ data, timezone }) {
   const list = Array.isArray(data) ? data : [];

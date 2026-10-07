@@ -5,6 +5,7 @@ from datetime import datetime, timezone as UTC
 from zoneinfo import ZoneInfo
 
 from .errors import InvalidResponseError
+from .lineup import track_lineup
 from .models import Query
 
 KIND_SECTIONS = {
@@ -182,21 +183,7 @@ def player(value, fallback_position=None):
 
 
 def extract_lineup(raw):
-    lineup = obj(obj(raw.get("content")).get("lineup"))
-    if not lineup:
-        return None
-    result = {}
-    for side in ("home", "away"):
-        team = obj(lineup.get(f"{side}Team"))
-        # Older responses use home/away and players; newer responses use starters.
-        if not team:
-            team = obj(lineup.get(side))
-        starters = items(team.get("starters", team.get("players", [])))
-        players = [player(item) for item in starters if obj(item).get("name")]
-        if not team.get("name") and not players:
-            continue
-        result[side] = {"name": team.get("name"), "formation": team.get("formation"), "players": players}
-    return result if "home" in result and "away" in result else None
+    return track_lineup(raw, player)
 
 
 def extract_stats(raw):
@@ -321,6 +308,10 @@ def normalize(raw: dict, query: Query):
     unavailable = [section for section in requested if section not in modules]
     modules = {key: value for key, value in modules.items() if key in requested}
     warnings = []
+    if "lineup" in modules:
+        warnings.extend(modules["lineup"]["warnings"])
+        if modules["lineup"]["state"] == "unavailable" and "lineup" not in unavailable:
+            unavailable.append("lineup")
     if unavailable:
         warnings.append("取得できない項目: " + ", ".join(unavailable) + "。試合前・大会の収録範囲・応答形式によって取得できる項目が変わります。")
     validate_modules(modules)
@@ -343,7 +334,7 @@ def validate_modules(modules):
             for side in ("home", "away"):
                 scalar(value[side]["name"])
                 scalar(value[side]["formation"])
-                for member in value[side]["players"]:
+                for member in value[side]["players"] + value[side]["startingPlayers"]:
                     for field in member.values():
                         scalar(field)
         elif isinstance(value, list):

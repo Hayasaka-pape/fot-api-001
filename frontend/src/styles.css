@@ -27,3 +27,19 @@
 
 .players-list>.lineup-empty-note{font-size:.55em;min-height:4em;justify-content:center;padding:.8em;border:1px dashed #ffffff20;background:#ffffff04;border-radius:6px;color:#a2b7aa;line-height:1.9}
 .lineup-empty-note>svg{color:var(--accent);opacity:.65;flex-shrink:0}
+
+.lineup-roster-state{display:flex;justify-content:space-between;align-items:center;gap:.5em;font-size:.43em;margin:-.15em 0 .65em;color:#a6b48d;line-height:1.5}
+.lineup-roster-state>span{display:flex;align-items:center;gap:.5em;min-width:0}
+.lineup-roster-state i{width:.4em;height:.4em;border-radius:50%;background:currentColor;flex-shrink:0}
+.lineup-roster-state.current{color:var(--accent)}
+.lineup-roster-state.final{color:#aebec4}
+.lineup-roster-state.uncertain{color:#d7b87f}
+.lineup-roster-state.unavailable{color:#8da19a}
+.lineup-roster-state>small{white-space:nowrap;color:#9aada5;font-family:Consolas,monospace;font-size:.9em}
+.players-list .incoming-badge{font-family:Consolas,monospace;font-size:.78em;line-height:1.3;padding:.16em .4em;border:1px solid #ffffff1a;background:#ffffff05;border-radius:3px;color:var(--accent);white-space:nowrap;flex-shrink:0}
+.lineup-empty-note.uncertain-note{border-color:#d7b87f38;background:#d7b87f06;color:#d7b87f}
+.uncertain-note>svg{color:#d7b87f}
+.uncertain-note>span{display:block}
+.lineup-empty-note.uncertain-note small{display:block;font-family:inherit;font-size:.78em;line-height:1.8;color:#9d9d84;margin-top:.2em}
+
+.lineup-module .players-list{gap:.14em}

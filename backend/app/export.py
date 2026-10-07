@@ -28,7 +28,8 @@ SCRIPT = r"""
   }else if(section==='stats'){
    value.forEach(s=>{const row=el('div',null,'row');if(s.away===null){add(row,el('span',s.label,'stat-label'),el('span',safe(s.home),'value'));}else{add(row,el('span',safe(s.home),'value'),el('span',s.label,'stat-label'),el('span',safe(s.away),'value'));}add(node,row);});
   }else if(section==='lineup'){
-   const columns=el('div',null,'columns');['home','away'].forEach(side=>{const team=value[side];const col=el('div');add(col,el('div',team.name),el('div',safe(team.formation),'muted'));team.players.forEach(p=>{const row=el('div',null,'player');add(row,el('span',safe(p.shirtNumber),'number'),el('span',p.name));add(col,row);});add(columns,col);});add(node,columns);
+   const labels={live:'現在の出場選手',final:'試合終了時の出場選手',starting:'先発予定',unavailable:'ラインナップ未取得',uncertain:'一部の出場選手を確認できません'};add(node,el('div',labels[value.state]||'ラインナップ','muted'));
+   const columns=el('div',null,'columns');['home','away'].forEach(side=>{const team=value[side];const col=el('div');add(col,el('div',team.name),el('div',`先発登録配置 ${safe(team.formation)}`,'muted'));if(team.tracking==='uncertain'){add(col,el('div','現在の出場選手を確認できません','empty'));}team.players.forEach(p=>{const row=el('div',null,'player');add(row,el('span',safe(p.shirtNumber),'number'),el('span',`${p.name}${p.enteredAt?' · IN '+p.enteredAt:''}`));add(col,row);});add(columns,col);});add(node,columns);
   }else if(section==='fixtures'){
    value.forEach(f=>{const item=el('div',null,'fixture');add(item,el('div',[safe(f.league),time(f.kickoff),safe(f.status)].join(' • '),'muted'));const row=el('div',null,'row');add(row,el('span',f.home),el('strong',`${safe(f.homeScore)} : ${safe(f.awayScore)}`),el('span',f.away));add(item,row);add(node,item);});
   }else if(section==='standings'){

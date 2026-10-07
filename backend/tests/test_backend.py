@@ -32,8 +32,12 @@ def test_actual_reference_match_schema_and_timezone():
     assert modules["scoreboard"]["away"]["score"] == 1
     assert modules["scoreboard"]["kickoff"] == "2026-05-16T23:00:00+09:00"
     assert modules["stats"][0] == {"label": "Ball possession", "home": "44%", "away": "56%"}
-    assert modules["lineup"]["home"]["players"][0]["name"] == "Robert Sánchez"
-    assert modules["lineup"]["home"]["players"][0]["position"] == "GK"
+    # This old reduced cassette omits player IDs and the event timeline. Its
+    # source starters remain available without being claimed as the final XI.
+    assert modules["lineup"]["state"] == "uncertain"
+    assert modules["lineup"]["home"]["players"] == []
+    assert modules["lineup"]["home"]["startingPlayers"][0]["name"] == "Robert Sánchez"
+    assert modules["lineup"]["home"]["startingPlayers"][0]["position"] == "GK"
     assert "standings" in unavailable
 
 

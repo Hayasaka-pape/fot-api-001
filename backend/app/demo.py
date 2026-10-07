@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from .models import Query
-from .normalizers import KIND_SECTIONS
+from .lineup import track_lineup
+from .normalizers import KIND_SECTIONS, player
 
 HOME_NAMES = ["Robert Sánchez", "Reece James", "Wesley Fofana", "Levi Colwill", "Marc Cucurella", "Moisés Caicedo", "Enzo Fernández", "Cole Palmer", "Pedro Neto", "João Pedro", "Liam Delap"]
 AWAY_NAMES = ["Gianluigi Donnarumma", "Rico Lewis", "Rúben Dias", "Joško Gvardiol", "Rayan Aït-Nouri", "Rodri", "Tijjani Reijnders", "Phil Foden", "Bernardo Silva", "Jérémy Doku", "Erling Haaland"]
@@ -31,10 +32,29 @@ def demo_response(query: Query):
     fixtures = [{key: match[key] for key in ("id", "home", "away", "homeScore", "awayScore", "status", "league", "leagueId")} | {"kickoff": kickoff_for(match)} for match in DEMO_MATCHES]
     def players(names):
         return [{"name": name, "shirtNumber": number, "position": "GK" if index == 0 else "DF" if index < 5 else "MF" if index < 8 else "FW"} for index, (name, number) in enumerate(zip(names, [1, 24, 29, 6, 3, 25, 8, 10, 7, 20, 9]))]
+    demo_starters = {
+        "home": [{**member, "id": 9000001 + index} for index, member in enumerate(players(HOME_NAMES if selected["id"] == "5315746" else [f"デモ HOME 選手 {number}" for number in range(1, 12)]))],
+        "away": [{**member, "id": 9001001 + index} for index, member in enumerate(players(AWAY_NAMES if selected["id"] == "5315746" else [f"デモ AWAY 選手 {number}" for number in range(1, 12)]))],
+    }
+    primary = selected["id"] == "5315746"
+    demo_subs = {
+        "home": [{"id": 9000021, "name": "Malo Gusto" if primary else "デモ HOME 交代選手 1", "shirtNumber": 27, "position": "DF"},
+                 {"id": 9000022, "name": "Alejandro Garnacho" if primary else "デモ HOME 交代選手 2", "shirtNumber": 49, "position": "FW"}],
+        "away": [{"id": 9001021, "name": "Rayan Cherki" if primary else "デモ AWAY 交代選手 1", "shirtNumber": 10, "position": "MF"}],
+    }
+    demo_events = []
+    if selected["status"] != "試合前":
+        for side, minute, sub_index, starter_index in [("home", 46, 0, 1), ("home", 62, 1, 8), ("away", 64, 0, 8)]:
+            demo_events.append({"type": "Substitution", "time": minute, "overloadTime": 0, "isHome": side == "home",
+                                "swap": [demo_subs[side][sub_index], demo_starters[side][starter_index]]})
+    demo_lineup_raw = {"general": {"started": selected["status"] != "試合前", "finished": selected["status"] == "FT"},
+                       "content": {"lineup": {f"{side}Team": {"name": selected[side], "formation": "4-2-3-1" if side == "home" else "4-3-3",
+                                                              "starters": demo_starters[side], "subs": demo_subs[side]} for side in ("home", "away")},
+                                   "matchFacts": {"events": {"events": demo_events}}}}
     all_modules = {
         "scoreboard": {"home": home, "away": away, "league": selected["league"], "status": selected["status"], "clock": selected["clock"], "kickoff": kickoff},
         "stats": [{"label": label, "home": left, "away": right} for label, left, right in [("ボール支配率", "54%", "46%"), ("シュート", 14, 9), ("枠内シュート", 6, 3), ("期待得点 (xG)", "1.82", "0.94"), ("コーナーキック", 5, 3), ("ファウル", 8, 10)]],
-        "lineup": {"home": {"name": home["name"], "formation": "4-2-3-1", "players": players(HOME_NAMES if selected["id"] == "5315746" else [f"デモ HOME 選手 {number}" for number in range(1, 12)])}, "away": {"name": away["name"], "formation": "4-3-3", "players": players(AWAY_NAMES if selected["id"] == "5315746" else [f"デモ AWAY 選手 {number}" for number in range(1, 12)])}},
+        "lineup": track_lineup(demo_lineup_raw, player),
         "fixtures": fixtures,
         "standings": [{"position": index + 1, "team": name, "played": 7, "won": won, "drawn": drawn, "lost": 7-won-drawn, "goalsFor": gf, "goalsAgainst": ga, "goalDifference": gf-ga, "points": won*3+drawn} for index, (name, won, drawn, gf, ga) in enumerate([("Arsenal", 6, 1, 18, 4), ("Manchester City", 5, 1, 17, 7), ("Liverpool", 5, 0, 15, 6), ("Chelsea", 4, 2, 14, 8), ("Tottenham", 4, 1, 13, 9), ("Newcastle", 3, 2, 10, 9)])],
         "team": {"name": "Chelsea", "country": "ENG", "coach": "デモ監督", "venue": "Stamford Bridge"},
@@ -55,6 +75,8 @@ def demo_response(query: Query):
     modules = {key: copy.deepcopy(value) for key, value in all_modules.items() if key in requested and key in supported}
     unavailable = [key for key in requested if key not in modules]
     warnings = ["デモデータです。実際の試合結果・順位・選手情報ではありません。"]
+    if "lineup" in modules:
+        warnings.extend(modules["lineup"]["warnings"])
     if unavailable:
         warnings.append("この検索形式に対応しない項目: " + ", ".join(unavailable))
     return {"source": "demo", "fetchedAt": datetime.now(timezone.utc).isoformat(), "kind": query.kind, "modules": modules, "raw": {"demo": True, "modules": copy.deepcopy(modules)}, "warnings": warnings, "unavailable": unavailable}
