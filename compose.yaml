@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
+      # No login is required by the local API; binding all interfaces would expose saved scenes.
       - "127.0.0.1:${HOST_PORT:-8000}:8000"
     environment:
       DATA_DIR: /app/data
@@ -11,19 +12,11 @@ services:
       TIMEZONE: ${TIMEZONE:-Asia/Tokyo}
       FOTMOB_TIMEOUT: ${FOTMOB_TIMEOUT:-10}
     volumes:
+      # A named volume survives restarts without platform-specific host paths or permissions.
       - studio-data:/app/data
     restart: unless-stopped
     init: true
-    healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=3)"
-      interval: 30s
-      timeout: 5s
-      start_period: 15s
-      retries: 3
+    # Inherit the Dockerfile healthcheck so docker run and Compose use one definition.
 
 volumes:
   studio-data:

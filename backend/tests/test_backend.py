@@ -237,6 +237,85 @@ def test_schema_objects_are_invalid_response_instead_of_renderer_children(tmp_pa
     assert response.status_code == 502 and response.json()["error"]["code"] == "INVALID_RESPONSE"
 
 
+def test_unrequested_broken_match_stats_lineup_and_standings_do_not_block_scores(tmp_path):
+    raw = load_fixture("match_reference.json")
+    raw["content"]["stats"] = {"Periods": {"All": {"stats": [{"stats": [{"key": {"changed": True}, "stats": [1, 2]}]}]}}}
+    raw["content"]["lineup"]["homeTeam"]["starters"][0]["usualPlayingPositionId"] = {"changed": True}
+    raw["table"] = {"all": [{"id": [1], "name": "Broken table"}]}
+    upstream = FotmobClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, text='{"buildId":"test"}')
+                            if request.url.path == "/" else httpx.Response(200, json={"pageProps": raw})))
+    client = TestClient(create_app(data_dir=tmp_path, client=upstream))
+    payload = {"kind": "match", "id": "5315746", "sections": ["scoreboard"]}
+    response = client.post("/api/query", json=payload)
+    assert response.status_code == 200
+    assert set(response.json()["modules"]) == {"scoreboard"} and response.json()["warnings"] == []
+    assert response.json()["raw"] == {"selected": response.json()["modules"]}
+    bad_selected = client.post("/api/query", json={**payload, "sections": ["stats"]})
+    assert bad_selected.status_code == 502 and bad_selected.json()["error"]["code"] == "INVALID_RESPONSE"
+
+
+@pytest.mark.parametrize("kind,fixture_name", [("team", "team_current.json"), ("league", "league_current.json")])
+def test_unrequested_broken_season_modules_do_not_block_fixtures(tmp_path, kind, fixture_name):
+    raw = load_fixture(fixture_name)
+    raw["stats"] = {"teams": [{"header": "Goals", "participant": {"name": {"changed": True}, "value": 1}}]}
+    raw["table"] = {"all": [{"id": [1], "name": "Broken table"}]}
+    raw["squad"] = {"squad": [{"members": [{"name": "Player", "usualPlayingPositionId": {"changed": True}}]}]}
+    upstream = FotmobClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json=raw)))
+    response = TestClient(create_app(data_dir=tmp_path, client=upstream)).post("/api/query", json={"kind": kind, "id": "1", "sections": ["fixtures"]})
+    assert response.status_code == 200 and set(response.json()["modules"]) == {"fixtures"}
+
+
+@pytest.mark.parametrize("kind,raw", [
+    ("match", {"general": {"matchId": "1"}, "content": {"stats": {"Periods": {"All": {"stats": [{"stats": [{"key": "BallPossesion", "title": "Possession", "stats": [{"changed": True}, 50]}]}]}}}}}),
+    ("team", {"details": {"name": "Team"}, "stats": {"teams": [{"header": "Possession", "participant": {"name": "Team", "stat": {"format": "percent", "value": {"changed": True}}}}]}}),
+    ("league", {"details": {"name": "League"}, "stats": {"teams": [{"header": {"changed": True}, "topThree": [{"name": "Team", "value": 5}]}]}}),
+    ("team", {"details": {"name": "Team"}, "stats": {"teams": [{"header": "Rating", "participant": {"name": "Team", "value": float("nan")}}]}}),
+])
+def test_formatting_does_not_hide_changed_stats_objects_or_nonfinite_values(tmp_path, kind, raw):
+    class Provider:
+        async def fetch(self, query):
+            return raw, "2026-10-07T00:00:00Z"
+    response = TestClient(create_app(data_dir=tmp_path, client=Provider())).post("/api/query", json={"kind": kind, "id": "1", "sections": ["stats"]})
+    assert response.status_code == 502 and response.json()["error"]["code"] == "INVALID_RESPONSE"
+
+
+def test_router_method_errors_use_error_envelope_and_keep_allow_header(tmp_path):
+    response = TestClient(create_app(data_dir=tmp_path)).put("/api/query", json={})
+    assert response.status_code == 405 and response.json()["error"]["code"] == "HTTP_ERROR"
+    assert "POST" in response.headers["allow"]
+
+
+def test_render_bundle_uses_one_scene_snapshot_even_if_a_save_happens_during_fetch(tmp_path, monkeypatch):
+    app = create_app(data_dir=tmp_path)
+    client = TestClient(app)
+    scene = client.post("/api/scenes", json={"name": "Before", "query": {"kind": "match", "id": "5315746", "mode": "demo"}, "sections": ["stats"]}).json()
+    original_get = app.state.store.get
+    lookups = []
+    def get_then_save(scene_id):
+        old_snapshot = original_get(scene_id)
+        lookups.append(scene_id)
+        app.state.store.update(scene_id, SceneInput.model_validate({**scene, "name": "After", "sections": ["scoreboard"],
+                                                                  "query": {"kind": "match", "id": "5181855", "mode": "demo"}}))
+        return old_snapshot
+    monkeypatch.setattr(app.state.store, "get", get_then_save)
+    response = client.get(f"/api/scenes/{scene['id']}/render")
+    assert response.status_code == 200 and lookups == [scene["id"]]
+    bundle = response.json()
+    assert set(bundle) == {"scene", "data"} and bundle["scene"] == scene
+    assert set(bundle["data"]["modules"]) == {"stats"}
+    assert set(bundle["data"]["raw"]["modules"]) == {"stats"}
+    assert original_get(scene["id"])["name"] == "After"
+
+
+def test_legacy_poll_interval_is_readable_but_connected_export_uses_current_poll_floor(tmp_path):
+    scene = SceneInput(name="Legacy", query=Query(kind="match", id="1", mode="demo"), pollInterval=15).model_dump()
+    with zipfile.ZipFile(io.BytesIO(make_export(scene, {"modules": {}}, connected_url="http://localhost/api/scenes/test/data", frontend_dist=tmp_path))) as archive:
+        assert json.loads(archive.read("config.json"))["pollInterval"] == 15
+        script = archive.read("overlay.js").decode()
+        assert "Math.max(30,config.pollInterval)" in script
+        assert "__MIN_POLL_SECONDS__" not in script
+
+
 def test_unrecognized_json_schema_is_not_a_successful_empty_query(tmp_path):
     upstream = FotmobClient(transport=httpx.MockTransport(lambda request: httpx.Response(200, json={"message": "different API"})))
     client = TestClient(create_app(data_dir=tmp_path, client=upstream))

@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .client import FotmobClient
 from .demo import demo_response
@@ -21,7 +22,8 @@ def create_app(*, data_dir=None, client=None, frontend_dist=None):
     app.state.client = client or FotmobClient()
     app.state.store = SceneStore(data_dir or os.getenv("DATA_DIR", "data"))
     dist = Path(frontend_dist or os.getenv("FRONTEND_DIST", "../frontend/dist")).resolve()
-    # Same-origin by default. Dev origins must be explicitly configured.
+    # A wildcard would let unrelated websites write to local scene endpoints.
+    # Dev origins are explicit; the production UI/OBS share this origin.
     origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip() and origin.strip() != "*"]
     if origins:
         app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type"])
@@ -43,15 +45,19 @@ def create_app(*, data_dir=None, client=None, frontend_dist=None):
             messages.append(f"{location}: {item['msg']}" if location else item["msg"])
         return JSONResponse({"error": {"code": "VALIDATION_ERROR", "message": " / ".join(messages)}}, status_code=422)
 
-    @app.exception_handler(HTTPException)
+    # Router errors such as 405 use Starlette's base exception, so catching only
+    # FastAPI's subclass would leave them outside our public error envelope.
+    @app.exception_handler(StarletteHTTPException)
     async def handle_http_error(request, error):
-        return JSONResponse({"error": {"code": "NOT_FOUND" if error.status_code == 404 else "HTTP_ERROR", "message": str(error.detail)}}, status_code=error.status_code)
+        return JSONResponse({"error": {"code": "NOT_FOUND" if error.status_code == 404 else "HTTP_ERROR", "message": str(error.detail)}}, status_code=error.status_code, headers=error.headers)
 
     @app.exception_handler(sqlite3.Error)
     async def handle_storage_error(request, error):
         return JSONResponse({"error": {"code": "STORAGE_ERROR", "message": "シーンの保存に失敗しました。データディレクトリの空き容量・権限を確認してください"}}, status_code=500)
 
     async def query_data(query):
+        # A live failure must stay visible; substituting a plausible demo result
+        # would put fictional scores on a broadcast without an explicit switch.
         if query.mode == "demo":
             return demo_response(query)
         raw, fetched_at = await app.state.client.fetch(query)
@@ -59,7 +65,8 @@ def create_app(*, data_dir=None, client=None, frontend_dist=None):
             modules, warnings, unavailable = normalize(raw, query)
         except (TypeError, AttributeError, KeyError, ValueError):
             raise InvalidResponseError("FotMob のデータ構造が変更されています。時間をおいて再取得してください")
-        # Only selected information is exposed in an explicitly filtered response.
+        # Keeping the full raw payload here would leak unselected information
+        # into JSON/ZIP exports even when the visible modules were filtered.
         selected_raw = {"selected": modules} if query.sections is not None else raw
         return {"source": "fotmob", "fetchedAt": fetched_at, "kind": query.kind, "modules": modules,
                 "raw": selected_raw, "warnings": warnings, "unavailable": unavailable}
@@ -110,6 +117,13 @@ def create_app(*, data_dir=None, client=None, frontend_dist=None):
     async def get_scene_data(scene_id: str):
         _, data = await scene_data(scene_id)
         return data
+
+    @app.get("/api/scenes/{scene_id}/render")
+    async def get_scene_render(scene_id: str):
+        # Separate scene and data requests can straddle a save, combining an old
+        # layout with a new query. Derive both from one stored scene snapshot.
+        scene, data = await scene_data(scene_id)
+        return {"scene": scene, "data": data}
 
     @app.get("/api/scenes/{scene_id}/export")
     async def export_scene(scene_id: str, request: Request, connected: bool = False):

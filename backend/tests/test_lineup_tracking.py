@@ -123,6 +123,15 @@ def test_unknown_ids_clocks_roles_and_periods_cannot_be_claimed_as_current(event
     assert value["warnings"]
 
 
+@pytest.mark.parametrize("event", [red_card(1, type=None), red_card(1, type="CardV2"), red_card(1, card=None)])
+def test_unknown_dismissal_event_or_missing_card_color_is_uncertain_instead_of_ignored(event):
+    value = lineup(source([event]))
+    assert value["home"]["tracking"] == "uncertain" and value["home"]["players"] == []
+    assert len(value["home"]["startingPlayers"]) == 3
+    assert value["away"]["tracking"] == "current"
+    assert any("未対応" in warning for warning in value["warnings"])
+
+
 @pytest.mark.parametrize("event", [substitution(4, 1, 67, cancelled=True), red_card(1, VAR={"decision": "unknown"})])
 def test_unverified_cancellation_and_var_forms_are_not_guessed_or_reapplied(event):
     raw = source([event])
@@ -189,6 +198,27 @@ def test_missing_duplicate_and_oversized_rosters_cannot_produce_a_current_list(c
     value = lineup(raw)
     assert value["state"] == "uncertain" and value["home"]["players"] == []
     assert value["home"]["startingPlayers"]
+
+
+@pytest.mark.parametrize("missing_name", [None, "", "   "])
+def test_missing_starter_name_preserves_baseline_instead_of_claiming_a_smaller_pitch_side(missing_name):
+    raw = source()
+    raw["content"]["lineup"]["homeTeam"]["starters"][0]["name"] = missing_name
+    value = lineup(raw)
+    assert value["home"]["players"] == [] and value["home"]["tracking"] == "uncertain"
+    assert len(value["home"]["startingPlayers"]) == 3
+    assert value["home"]["startingPlayers"][0]["id"] == "1"
+    assert value["away"]["tracking"] == "current"
+    assert any("名前" in warning for warning in value["warnings"])
+
+
+def test_an_unnamed_incoming_substitute_is_uncertain_instead_of_a_verified_blank_player():
+    raw = source([substitution(4, 1, 67)])
+    raw["content"]["lineup"]["homeTeam"]["subs"][0].pop("name")
+    value = lineup(raw)
+    assert value["home"]["players"] == [] and value["home"]["tracking"] == "uncertain"
+    assert value["away"]["tracking"] == "current"
+    assert any("名前" in warning for warning in value["warnings"])
 
 
 def test_demo_live_current_list_differs_from_source_starters_and_contains_substitution_times():

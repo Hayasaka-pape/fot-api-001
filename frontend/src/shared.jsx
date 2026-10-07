@@ -1,7 +1,8 @@
 import React from 'react';
 import { Shield, Users, Trophy, MapPin, CalendarDays } from 'lucide-react';
+import { MIN_POLL_SECONDS } from './polling.js';
 
-export const SECTION_NAMES = { scoreboard: 'スコアボード', stats: '試合スタッツ', lineup: '出場選手', fixtures: '試合日程', standings: '順位表', team: 'チーム情報', league: 'リーグ情報', squad: '選手一覧' };
+export const SECTION_NAMES = { scoreboard: 'スコアボード', stats: 'スタッツ', lineup: '出場選手', fixtures: '試合日程', standings: '順位表', team: 'チーム情報', league: 'リーグ情報', squad: '選手一覧' };
 export const KINDS = { match: { label: '試合', sections: ['scoreboard', 'stats', 'lineup', 'fixtures'], icon: 'match' }, date: { label: '日付別', sections: ['fixtures'], icon: 'date' }, team: { label: 'チーム', sections: ['team', 'fixtures', 'squad', 'stats', 'standings'], icon: 'team' }, league: { label: 'リーグ', sections: ['league', 'standings', 'fixtures', 'stats'], icon: 'league' } };
 export const INITIAL_QUERY = { kind: 'match', id: '5315746', date: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' }), timezone: 'Asia/Tokyo', timeout: 15, mode: 'demo' };
 export const DEFAULT_WIDGETS = {
@@ -15,13 +16,14 @@ export const DEFAULT_WIDGETS = {
   squad: { x: 110, y: 430, width: 590, height: 570, fontSize: 25 },
 };
 export const makeWidget = section => ({ id: section, section, ...DEFAULT_WIDGETS[section] });
-export const makeScene = () => ({ name: 'MATCHDAY / メイン', query: { ...INITIAL_QUERY }, sections: ['scoreboard', 'stats', 'lineup', 'fixtures'], canvas: { width: 1920, height: 1080, background: 'transparent' }, theme: { accent: '#b8ef55', background: '#15191d', text: '#f5f7f8', opacity: 0.94 }, widgets: ['scoreboard', 'stats', 'lineup', 'fixtures'].map(makeWidget), pollInterval: 30 });
+export const makeScene = () => ({ name: 'MATCHDAY / メイン', query: { ...INITIAL_QUERY }, sections: ['scoreboard', 'stats', 'lineup', 'fixtures'], canvas: { width: 1920, height: 1080, background: 'transparent' }, theme: { accent: '#b8ef55', background: '#15191d', text: '#f5f7f8', opacity: 0.94 }, widgets: ['scoreboard', 'stats', 'lineup', 'fixtures'].map(makeWidget), pollInterval: MIN_POLL_SECONDS });
 
 export async function api(path, options = {}) {
-  const response = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...options.headers } });
+  // GETs need no JSON Content-Type; adding it would force unnecessary CORS preflights for connected exports.
+  const response = await fetch(path, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
   if (!response.ok) {
     let detail;
-    try { const result = await response.json(); detail = result.error?.message || result.message || result.detail?.message || (typeof result.detail === 'string' ? result.detail : null); } catch { /* server may return text */ }
+    try { const result = await response.json(); detail = result.error?.message || result.message || result.detail?.message || (typeof result.detail === 'string' ? result.detail : null); } catch { /* Proxy errors may be HTML; retain the HTTP status instead of masking it with JSON parse failure. */ }
     throw new Error(detail || `取得できませんでした（HTTP ${response.status}）`);
   }
   return response.status === 204 ? null : response.json();
@@ -34,7 +36,8 @@ export function timeLabel(value, timezone = 'Asia/Tokyo') {
 }
 export function filteredData(data, sections) {
   if (!data) return null;
-  return { source: data.source, kind: data.kind, fetchedAt: data.fetchedAt, modules: Object.fromEntries(sections.filter(section => data.modules?.[section] != null).map(section => [section, data.modules[section]])), warnings: data.warnings || [], unavailable: data.unavailable || [] };
+  // Cached/raw data may contain unchecked modules; filtering again prevents hidden data from entering downloaded JSON.
+  return { source: data.source, kind: data.kind, fetchedAt: data.fetchedAt, modules: Object.fromEntries(sections.filter(section => data.modules?.[section] != null).map(section => [section, data.modules[section]])), warnings: data.warnings || [], unavailable: (data.unavailable || []).filter(section => sections.includes(section)) };
 }
 export function initials(name) { return String(name || '?').split(/\s+/).filter(Boolean).map(s => s[0]).slice(0, 3).join('').toUpperCase(); }
 
@@ -53,6 +56,7 @@ function Stats({ data }) {
   })}</div></div>;
 }
 function Lineup({ data }) {
+  // Legacy exports only contain starters; treating them as live players would falsely imply substitutions were tracked.
   const legacy = !data.state, state = data.state || 'starting';
   const titles = { live: '現在の出場選手', final: '試合終了時の出場選手', starting: legacy ? '先発名簿（参考）' : '試合前の先発選手', uncertain: '出場選手', unavailable: '出場選手' };
   const eyebrows = { live: 'ON THE PITCH', final: 'FULL TIME', starting: 'STARTING XI', uncertain: 'PLAYER TRACKING', unavailable: 'PLAYERS' };
@@ -61,6 +65,7 @@ function Lineup({ data }) {
     <div className="lineup-columns">{['home', 'away'].map(side => {
       const team = data[side] || {}, players = Array.isArray(team.players) ? team.players : [];
       const tracking = team.tracking || (state === 'starting' ? 'starting' : state === 'uncertain' ? 'uncertain' : 'current');
+      // Missing pre-match data is neutral; a warning about substitutions would invent a tracking failure.
       const unavailable = state === 'unavailable', uncertain = !unavailable && tracking === 'uncertain';
       const label = uncertain ? '交代状況 未確認' : unavailable ? '選手情報 未提供' : tracking === 'starting' || state === 'starting' ? legacy ? '先発名簿（参考）' : '試合前の先発' : state === 'final' ? '試合終了時の出場選手' : state === 'live' ? '現在の出場選手' : '交代を反映した選手';
       const statusClass = uncertain ? 'uncertain' : unavailable ? 'unavailable' : state === 'final' ? 'final' : tracking;
@@ -98,6 +103,7 @@ export function Module({ section, data, timezone }) {
     default: return <EmptyModule section={section} />;
   }
 }
+// Studio, live OBS and portable ZIP deliberately share this renderer; separate templates drift in layout and roster states.
 export function Canvas({ scene, data, selected, onSelect, onDrag, editing = false, canvasRef }) {
   const theme = scene.theme || {};
   return <div ref={canvasRef} className={`scene-canvas ${editing ? 'editing' : ''}`} style={{ width: scene.canvas.width, height: scene.canvas.height, background: scene.canvas.background === 'transparent' ? 'transparent' : scene.canvas.background, '--accent': theme.accent, '--panel-bg': theme.background, '--panel-opacity': theme.opacity, '--panel-text': theme.text }}>

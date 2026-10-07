@@ -7,7 +7,17 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Section = Literal["scoreboard", "stats", "lineup", "fixtures", "standings", "team", "league", "squad"]
-SECTIONS = ["scoreboard", "stats", "lineup", "fixtures", "standings", "team", "league", "squad"]
+MIN_POLL_SECONDS = 30
+
+
+def configured_timezone():
+    return os.getenv("TIMEZONE", "Asia/Tokyo")
+
+
+def configured_timeout():
+    # Let Pydantic parse the string instead of float() here: a bad .env value
+    # must receive the same validation response as a bad explicit request.
+    return os.getenv("FOTMOB_TIMEOUT", "10")
 
 
 class StrictModel(BaseModel):
@@ -18,8 +28,8 @@ class Query(StrictModel):
     kind: Literal["match", "date", "team", "league"]
     id: str | None = None
     date: str | None = None
-    timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Tokyo"))
-    timeout: float = Field(default_factory=lambda: float(os.getenv("FOTMOB_TIMEOUT", "10")), ge=1, le=60)
+    timezone: str = Field(default_factory=configured_timezone)
+    timeout: float = Field(default_factory=configured_timeout, ge=1, le=60)
     mode: Literal["demo", "live"] = "live"
     sections: list[Section] | None = Field(default=None, max_length=8)
 
@@ -59,8 +69,8 @@ class Query(StrictModel):
 
 class MatchOptionsInput(StrictModel):
     date: str
-    timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Tokyo"))
-    timeout: float = Field(default=15, ge=1, le=60)
+    timezone: str = Field(default_factory=configured_timezone)
+    timeout: float = Field(default_factory=configured_timeout, ge=1, le=60)
     mode: Literal["demo", "live"] = "live"
 
     @field_validator("date")
@@ -79,7 +89,8 @@ class MatchOptionsInput(StrictModel):
 
 
 def css_color(value):
-    # Deliberately small, portable set; no CSS expressions or URLs.
+    # General CSS expressions/URLs could load remote content in an exported OBS
+    # file; accept a small portable set of literal colors instead.
     if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgb|rgba)\([0-9.,%\s]+\)|transparent|black|white", value):
         raise ValueError("色は HEX、rgb、rgba 形式で指定してください")
     return value
@@ -127,7 +138,9 @@ class SceneInput(StrictModel):
     canvas: Canvas = Field(default_factory=Canvas)
     theme: Theme = Field(default_factory=Theme)
     widgets: list[Widget] = Field(default_factory=default_widgets, max_length=24)
-    pollInterval: int = Field(default=30, ge=15, le=3600)
+    # Keep 15-second saved scenes readable; renderers clamp actual polling to 30
+    # rather than rejecting a previously valid scene when it is edited.
+    pollInterval: int = Field(default=MIN_POLL_SECONDS, ge=15, le=3600)
 
     @model_validator(mode="after")
     def valid_layout(self):
@@ -135,6 +148,8 @@ class SceneInput(StrictModel):
         if len(ids) != len(set(ids)):
             raise ValueError("ウィジェット ID は重複できません")
         widget_sections = [widget.section for widget in self.widgets]
+        # A section is resolved once in the preview. Multiple copies would make
+        # its position ambiguous and diverge from the portable export renderer.
         if len(widget_sections) != len(set(widget_sections)) or len(self.sections) != len(set(self.sections)):
             raise ValueError("同じ項目はシーンに 1 つだけ配置できます")
         for widget in self.widgets:

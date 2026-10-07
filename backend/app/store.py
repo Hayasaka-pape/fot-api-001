@@ -24,6 +24,8 @@ class SceneStore:
             with connection:
                 yield connection
         finally:
+            # sqlite3's own context manager commits/rolls back but does not close;
+            # relying on it alone retains file handles and locks until GC.
             connection.close()
 
     def list(self):
@@ -38,7 +40,8 @@ class SceneStore:
         return json.loads(row[0])
 
     def create(self, scene: SceneInput):
-        # Client IDs are never used for inserts to avoid accidental overwrites.
+        # Reusing a supplied ID would turn Create into an accidental overwrite;
+        # updates belong to the explicit existing-scene endpoint.
         scene_id = str(uuid.uuid4())
         value = scene.model_dump(mode="json")
         value["id"] = scene_id

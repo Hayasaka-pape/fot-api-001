@@ -7,13 +7,7 @@ they never invent changes or pair two players by their names or shirt numbers.
 import re
 from collections import Counter
 
-
-def object_value(value):
-    return value if isinstance(value, dict) else {}
-
-
-def list_value(value):
-    return value if isinstance(value, list) else []
+from .values import as_list, as_object
 
 
 def player_id(value):
@@ -55,8 +49,8 @@ def entered_label(clock):
 
 
 def phase(raw):
-    general = object_value(raw.get("general"))
-    status = object_value(object_value(raw.get("header")).get("status"))
+    general = as_object(raw.get("general"))
+    status = as_object(as_object(raw.get("header")).get("status"))
     if general.get("finished") is True or status.get("finished") is True:
         return "final"
     if general.get("started") is True or status.get("started") is True:
@@ -67,24 +61,28 @@ def phase(raw):
 
 
 def track_lineup(raw, normalize_player):
-    content = object_value(raw.get("content"))
-    lineup = object_value(content.get("lineup"))
-    general = object_value(raw.get("general"))
+    content = as_object(raw.get("content"))
+    lineup = as_object(content.get("lineup"))
+    general = as_object(raw.get("general"))
     result = {"view": "onPitch", "state": phase(raw), "warnings": []}
     registries, current, issues, summary_players = {}, {}, {}, {}
     available = {}
     for side in ("home", "away"):
-        team = object_value(lineup.get(f"{side}Team")) or object_value(lineup.get(side))
-        starters = list_value(team.get("starters", team.get("players")))
-        starters = [member for member in starters if object_value(member).get("name")]
+        team = as_object(lineup.get(f"{side}Team")) or as_object(lineup.get(side))
+        starters = as_list(team.get("starters", team.get("players")))
+        # Dropping unnamed starter entries would silently turn a damaged XI into
+        # a supposedly verified 10-player side. Retain the source baseline and
+        # mark it uncertain instead of inferring a missing player's dismissal.
         registry, baseline, side_issues = {}, [], []
-        roster = starters + list_value(team.get("subs"))
+        roster = starters + as_list(team.get("subs"))
         for member_index, member in enumerate(roster):
-            member = object_value(member)
+            member = as_object(member)
             identity = player_id(member.get("id"))
             normalized = {**normalize_player(member), "id": identity}
             if member_index < len(starters):
                 baseline.append(normalized)
+                if not isinstance(normalized["name"], str) or not normalized["name"].strip():
+                    side_issues.append("先発選手の名前がありません")
             if identity:
                 if identity in registry:
                     side_issues.append("登録選手の ID が重複しています")
@@ -94,7 +92,7 @@ def track_lineup(raw, normalize_player):
             side_issues.append("先発選手の ID がありません")
         if len(baseline) > 11:
             side_issues.append("先発名簿が 11 人を超えています")
-        name = team.get("name") or object_value(general.get(f"{side}Team")).get("name")
+        name = team.get("name") or as_object(general.get(f"{side}Team")).get("name")
         result[side] = {"name": name, "formation": team.get("formation"), "formationSource": "starting",
                         "tracking": "starting" if result["state"] == "starting" and baseline else "uncertain",
                         "players": [dict(member) for member in baseline] if result["state"] == "starting" else [],
@@ -116,8 +114,10 @@ def track_lineup(raw, normalize_player):
     if result["state"] == "uncertain":
         for side in issues:
             issues[side].append("試合の開始・終了状態が取得できません")
-    container = object_value(object_value(content.get("matchFacts")).get("events"))
+    container = as_object(as_object(content.get("matchFacts")).get("events"))
     events = container.get("events")
+    # An absent timeline is not an empty timeline: displaying starters as current
+    # would falsely claim that no substitutions or dismissals have occurred.
     if not isinstance(events, list):
         for side in issues:
             issues[side].append("交代・退場の時系列イベントが取得できません")
@@ -135,18 +135,21 @@ def track_lineup(raw, normalize_player):
 
     changes = []
     for index, event in enumerate(events):
-        event = object_value(event)
+        event = as_object(event)
         kind = event.get("type")
-        swap = list_value(event.get("swap"))
-        identities = [player_id(object_value(member).get("id")) for member in swap]
-        identity = player_id(object_value(event.get("player")).get("id") or event.get("playerId"))
+        swap = as_list(event.get("swap"))
+        identities = [player_id(as_object(member).get("id")) for member in swap]
+        identity = player_id(as_object(event.get("player")).get("id") or event.get("playerId"))
         side = infer_side(event, identities if kind == "Substitution" else [identity] if identity else [])
         if kind == "VAR":
             issue(side, "VAR の変更内容を交代・退場情報として確認できません")
             continue
         red = kind == "Card" and event.get("card") in ("Red", "YellowRed")
         if kind != "Substitution" and not red:
-            if (kind == "Card" and event.get("card") not in (None, "Yellow")) or (kind != "Comment" and any(identities)):
+            # Ignoring a red marker just because its event type changed would
+            # claim the player stayed on the pitch. Unknown card/change forms
+            # must invalidate tracking rather than be treated as harmless text.
+            if (kind == "Card" and event.get("card") != "Yellow") or event.get("card") in ("Red", "YellowRed") or (kind != "Comment" and any(identities)):
                 issue(side, "未対応の選手変更イベントがあります")
             continue
         # No cancellation variant was observed in the source fixtures. Do not
@@ -191,6 +194,9 @@ def track_lineup(raw, normalize_player):
             if incoming not in registry or outgoing not in registry:
                 issue(side, "交代選手の ID が登録名簿と一致しません")
                 continue
+            if not isinstance(registry[incoming]["name"], str) or not registry[incoming]["name"].strip():
+                issue(side, "交代出場する選手の名前がありません")
+                continue
             if outgoing not in active or incoming in used[side] or incoming in dismissed[side]:
                 issue(side, "交代イベントと現在の出場選手が一致しません")
                 continue
@@ -201,7 +207,7 @@ def track_lineup(raw, normalize_player):
             observed[side][(outgoing, "subOut")] += 1
         else:
             identity = identities[0]
-            description = object_value(event.get("cardDescription"))
+            description = as_object(event.get("cardDescription"))
             bench_role = description.get("localizedKey") in ("coach", "bench", "substitute", "substitutes")
             if bench_role and identity in active:
                 issue(side, "退場選手のピッチ・ベンチ区分が一致しません")
@@ -213,25 +219,27 @@ def track_lineup(raw, normalize_player):
             dismissed[side].add(identity)
             if identity in active:
                 active.remove(identity)
-            # A registered bench/subbed-out player or identified coach does not
-            # reduce the number of players on the pitch.
+            # Removing every red-card recipient would incorrectly reduce the XI
+            # for bench/subbed-out players or an identified coach.
 
+    # Summary markers do not provide verified IN/OUT pairings or dismissal order;
+    # replaying them could double-apply or resurrect a corrected timeline event.
     for side, roster in summary_players.items():
         expected = Counter()
         for member in roster:
-            member = object_value(member)
+            member = as_object(member)
             identity = player_id(member.get("id"))
-            performance = object_value(member.get("performance"))
+            performance = as_object(member.get("performance"))
             if performance.get("substitutionEvents") is not None and not isinstance(performance["substitutionEvents"], list):
                 issue(side, "交代要約の形式を確認できません")
-            for event in list_value(performance.get("substitutionEvents")):
-                event = object_value(event)
+            for event in as_list(performance.get("substitutionEvents")):
+                event = as_object(event)
                 if event.get("type") in ("subIn", "subOut"):
                     expected[(identity, event["type"])] += 1
                 else:
                     issue(side, "交代要約の形式を確認できません")
-            for event in list_value(performance.get("events")):
-                if object_value(event).get("type") in ("redCard", "secondYellow") and identity not in red_seen[side]:
+            for event in as_list(performance.get("events")):
+                if as_object(event).get("type") in ("redCard", "secondYellow") and identity not in red_seen[side]:
                     issue(side, "退場の時系列イベントが不足しています")
         if any(observed[side][change] < count for change, count in expected.items()):
             issue(side, "交代の時系列イベントが不足しています")
@@ -243,6 +251,8 @@ def finish(result, issues, current, registries, preserve_starting=False):
         team = result[side]
         if issues[side] and not (preserve_starting and team["startingPlayers"] and all(reason == "先発選手の ID がありません" for reason in issues[side])):
             team["tracking"] = "uncertain"
+            # Keeping a best-effort roster here would look like verified current
+            # players. Retain startingPlayers for reference, but show no guessed XI.
             team["players"] = []
             reason = " / ".join(dict.fromkeys(issues[side]))
             result["warnings"].append(f"{team['name'] or side}: 現在の出場選手を確定できません（{reason}）。")

@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Braces, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Copy, ExternalLink, Eye, Film, Grid2X2, Layers3, LayoutTemplate, LoaderCircle, Maximize2, Monitor, MousePointer2, Plus, Radio, RefreshCw, Save, Settings2, Shield, SlidersHorizontal, Sparkles, Trash2, Trophy, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Braces, CalendarDays, Check, ChevronDown, CircleHelp, Clock3, Copy, ExternalLink, Eye, Film, Grid2X2, Layers3, LayoutTemplate, LoaderCircle, Maximize2, Monitor, MousePointer2, Plus, Radio, RefreshCw, Save, Settings2, Shield, SlidersHorizontal, Trash2, Trophy, X } from 'lucide-react';
 import { api, Canvas, filteredData, INITIAL_QUERY, KINDS, makeScene, makeWidget, SECTION_NAMES, timeLabel } from './shared.jsx';
+import { aspectRatioLabel, colorInputValue, queryKey as canonicalQueryKey, reconcileSavedScene, sceneKey } from './editor-state.js';
+import { MIN_POLL_SECONDS, startPolling } from './polling.js';
 
 const PRESETS = {
   team: [{ id: '8455', name: 'Chelsea' }, { id: '8456', name: 'Manchester City' }, { id: '9825', name: 'Arsenal' }, { id: '8650', name: 'Liverpool' }],
@@ -14,19 +16,19 @@ function widgetsForKind(kind, sections) {
   const overrides = kind === 'date' ? { fixtures: { x: 110, y: 100, width: 1700, height: 880 } } : kind === 'team' ? { stats: { x: 110, y: 430, width: 590, height: 570 }, squad: { x: 750, y: 100, width: 490, height: 900 }, fixtures: { x: 1295, y: 100, width: 515, height: 900, fontSize: 23 } } : kind === 'league' ? { stats: { x: 110, y: 390, width: 590, height: 330, fontSize: 20 }, standings: { x: 750, y: 100, width: 1060, height: 900 }, fixtures: { x: 110, y: 760, width: 590, height: 240, fontSize: 22 } } : {};
   return sections.map(section => ({ ...makeWidget(section), ...overrides[section] }));
 }
-function queryKey(query) {
-  return JSON.stringify({ kind: query.kind, id: query.kind === 'date' ? '' : String(query.id ?? ''), date: query.kind === 'date' ? String(query.date ?? '') : query.kind === 'match' ? String(query.date ?? INITIAL_QUERY.date) : '', mode: query.mode || 'live', timezone: query.timezone || 'Asia/Tokyo', timeout: Number(query.timeout ?? 15) });
-}
+function queryKey(query) { return canonicalQueryKey(query, INITIAL_QUERY.date); }
+function sceneSignature(scene) { return sceneKey(scene, INITIAL_QUERY.date); }
 function matchOptionsKey(query) { return JSON.stringify({ date: query.date || '', timezone: query.timezone || 'Asia/Tokyo', timeout: Number(query.timeout ?? 15), mode: query.mode || 'live' }); }
 function matchLabel(match, timezone) { const name = team => typeof team === 'object' ? team?.name || '—' : team || '—'; return `${name(match.home)} vs ${name(match.away)} · ${timeLabel(match.kickoff, timezone)} · ${match.status || '予定'}`; }
 
 export default function App() {
   const [scene, setScene] = useState(makeScene), [form, setForm] = useState({ ...INITIAL_QUERY }), [data, setData] = useState(null), [scenes, setScenes] = useState([]), [selected, setSelected] = useState('scoreboard'), [tab, setTab] = useState('preview'), [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState(''), [toast, setToast] = useState(''), [advanced, setAdvanced] = useState(false), [showHelp, setShowHelp] = useState(false), [showScenes, setShowScenes] = useState(false), [deleteConfirm, setDeleteConfirm] = useState(null), [scale, setScale] = useState(0.5), [savedState, setSavedState] = useState('');
   const [matchOptions, setMatchOptions] = useState({ key: '', status: 'loading', leagues: [], warnings: [], error: '' }), [leagueFilter, setLeagueFilter] = useState('all'), [matchSelection, setMatchSelection] = useState({ key: '', id: '' }), [manualMatch, setManualMatch] = useState(false), [listRetry, setListRetry] = useState(0);
-  const previewRef = useRef(null), canvasRef = useRef(null), seq = useRef(0), requestRef = useRef(null), sceneRef = useRef(scene), dragRef = useRef(null), toastTimer = useRef(null), busyRef = useRef(false), activeQueryRef = useRef(INITIAL_QUERY), optionsSeq = useRef(0), restoreMatchRef = useRef({ key: matchOptionsKey(INITIAL_QUERY), id: INITIAL_QUERY.id, manualMissing: false });
-  sceneRef.current = scene;
+  const previewRef = useRef(null), canvasRef = useRef(null), seq = useRef(0), requestRef = useRef(null), sceneRef = useRef(scene), formRef = useRef(form), savingRef = useRef(saving), sceneIntentRef = useRef(0), sceneLoadRef = useRef(null), deletedSceneIdsRef = useRef(new Set()), dragRef = useRef(null), toastTimer = useRef(null), busyRef = useRef(false), activeQueryRef = useRef(INITIAL_QUERY), optionsSeq = useRef(0), restoreMatchRef = useRef({ key: matchOptionsKey(INITIAL_QUERY), id: INITIAL_QUERY.id, manualMissing: false });
+  sceneRef.current = scene; formRef.current = form; savingRef.current = saving;
   const queryDirty = queryKey(form) !== queryKey(scene.query);
-  const sceneDirty = Boolean(scene.id) && savedState !== JSON.stringify(scene);
+  const crossKindTransition = isKindTransition();
+  const sceneDirty = Boolean(scene.id) && savedState !== sceneSignature(scene);
   const targetChoices = PRESETS[form.kind] || [];
   const currentOptionsKey = matchOptionsKey(form), optionsCurrent = matchOptions.key === currentOptionsKey && matchOptions.status === 'ready';
   const availableLeagues = optionsCurrent ? matchOptions.leagues : [], availableMatches = availableLeagues.flatMap(league => league.matches || []);
@@ -39,25 +41,37 @@ export default function App() {
   const sourceDemo = data ? data.source === 'demo' : scene.query.mode === 'demo';
   const notify = text => { clearTimeout(toastTimer.current); setToast(text); toastTimer.current = setTimeout(() => setToast(''), 3800); };
 
-  async function fetchData(query, sections, silent = false, nextWidgets = null) {
+  async function fetchData(query, sections, silent = false, nextWidgets = null, parentSignal = null) {
     const nextSeq = ++seq.current;
     requestRef.current?.abort();
     const controller = new AbortController(); requestRef.current = controller;
+    const abort = () => controller.abort();
+    parentSignal?.addEventListener('abort', abort, { once: true });
+    if (parentSignal?.aborted) controller.abort();
     activeQueryRef.current = query;
     busyRef.current = true;
     if (!silent) setLoading(true);
     setError('');
     try {
       const result = await api('/api/query', { method: 'POST', body: JSON.stringify({ ...query, sections }), signal: controller.signal });
-      if (nextSeq !== seq.current) return;
-      setData(result); setScene(previous => ({ ...previous, query: { ...query }, sections, ...(nextWidgets ? { widgets: nextWidgets } : {}) }));
+      // Abort alone cannot stop a response that already resolved; sequence also protects the latest selection.
+      if (nextSeq !== seq.current || controller.signal.aborted) return;
+      setData(result); setScene(previous => ({ ...previous, query: { ...query }, sections,
+        // Same-kind presets were applied immediately; reinstalling them now would undo a drag made during fetch.
+        ...(nextWidgets && previous.query.kind !== query.kind ? { widgets: nextWidgets } : {}) }));
+      return result;
     } catch (failure) { if (nextSeq === seq.current && failure.name !== 'AbortError') setError(failure.message); }
-    finally { if (nextSeq === seq.current) { busyRef.current = false; setLoading(false); } }
+    finally { parentSignal?.removeEventListener('abort', abort); if (nextSeq === seq.current) { busyRef.current = false; setLoading(false); } }
   }
   useEffect(() => {
     fetchData(INITIAL_QUERY, makeScene().sections);
-    api('/api/scenes').then(value => setScenes(Array.isArray(value) ? value : value.scenes || [])).catch(() => {});
-    return () => { requestRef.current?.abort(); clearTimeout(toastTimer.current); };
+    const controller = new AbortController();
+    api('/api/scenes', { signal: controller.signal }).then(value => {
+      if (controller.signal.aborted) return;
+      const loaded = Array.isArray(value) ? value : value.scenes || [];
+      setScenes(previous => [...loaded.filter(item => !deletedSceneIdsRef.current.has(item.id) && !previous.some(current => current.id === item.id)), ...previous]);
+    }).catch(failure => { if (!controller.signal.aborted) setError(`シーン一覧を取得できません：${failure.message}`); });
+    return () => { ++seq.current; ++sceneIntentRef.current; controller.abort(); requestRef.current?.abort(); sceneLoadRef.current?.abort(); clearTimeout(toastTimer.current); };
   }, []);
   useEffect(() => {
     if (form.kind !== 'match') return;
@@ -88,8 +102,12 @@ export default function App() {
   }, [form.kind, form.date, form.timezone, form.timeout, form.mode, listRetry]);
   useEffect(() => {
     if (!data) return;
-    const timer = setInterval(() => { if (document.visibilityState === 'visible' && !dragRef.current && !busyRef.current) fetchData(sceneRef.current.query, sceneRef.current.sections, true); }, Math.max(30, scene.pollInterval) * 1000);
-    return () => clearInterval(timer);
+    return startPolling({
+      load: signal => fetchData(sceneRef.current.query, sceneRef.current.sections, true, null, signal),
+      // Polling the old committed query while a draft is pending can erase the error from a failed new query.
+      shouldPoll: () => document.visibilityState === 'visible' && !dragRef.current && !busyRef.current && !savingRef.current && queryKey(formRef.current) === queryKey(sceneRef.current.query),
+      intervalSeconds: () => sceneRef.current.pollInterval, immediate: false,
+    });
   }, [Boolean(data), scene.pollInterval]);
   useLayoutEffect(() => {
     if (tab !== 'preview' || !previewRef.current) return;
@@ -109,25 +127,38 @@ export default function App() {
   }, []);
 
   function editQuery(key, value) {
+    cancelPendingSceneLoad();
     if (form.kind === 'match' && ['date', 'mode', 'timezone', 'timeout'].includes(key)) {
       restoreMatchRef.current = null; setMatchSelection({ key: '', id: '' });
       setForm(previous => ({ ...previous, [key]: value, ...(!manualMatch ? { id: '' } : {}) }));
     } else setForm(previous => ({ ...previous, [key]: value }));
   }
   function changeKind(kind) {
+    cancelPendingSceneLoad();
     if (kind === form.kind) return;
     restoreMatchRef.current = null; setManualMatch(false); setMatchSelection({ key: '', id: '' });
     if (kind === 'match') setMatchOptions({ key: '', status: 'loading', leagues: [], warnings: [], error: '' });
     setForm(previous => ({ ...previous, kind, date: previous.date || INITIAL_QUERY.date, id: kind === 'team' ? '8455' : kind === 'league' ? '47' : '' }));
   }
   function toggleSection(section) {
+    if (isKindTransition()) return;
+    cancelPendingSceneLoad();
     const next = scene.sections.includes(section) ? scene.sections.filter(s => s !== section) : [...scene.sections, section];
     if (!scene.widgets.some(w => w.section === section)) setScene(previous => ({ ...previous, widgets: [...previous.widgets, makeWidget(section)] }));
     setScene(previous => ({ ...previous, sections: next }));
     if (!next.includes(selected)) setSelected(next[0] || '');
-    if (data && (busyRef.current || (!data.modules?.[section] && next.includes(section)))) fetchData(scene.query, next);
+    if (data && (busyRef.current || (!data.modules?.[section] && next.includes(section)))) fetchData(pendingQuery(scene.query.kind), next);
+  }
+  function pendingQuery(kind) {
+    // Display edits must follow the requested match, not cancel it by querying the last displayed match again.
+    return busyRef.current && activeQueryRef.current?.kind === kind ? activeQueryRef.current : sceneRef.current.query;
+  }
+  function isKindTransition() {
+    // Outgoing module controls cannot apply to a different kind and must not cancel its incoming query.
+    return busyRef.current && activeQueryRef.current?.kind !== sceneRef.current.query.kind;
   }
   function runQuery() {
+    cancelPendingSceneLoad();
     if (form.kind === 'match' && !matchFetchAllowed) return;
     const changed = form.kind !== scene.query.kind;
     const sections = changed ? KINDS[form.kind].sections.filter(s => form.kind !== 'team' || s !== 'standings') : scene.sections;
@@ -146,11 +177,13 @@ export default function App() {
     return restored;
   }
   function selectLeague(id) {
+    cancelPendingSceneLoad();
     setLeagueFilter(id);
     const matches = id === 'all' ? availableMatches : availableLeagues.find(league => league.id === id)?.matches || [];
     if (!manualMatch && !matches.some(match => String(match.id) === matchSelection.id)) { setMatchSelection({ key: currentOptionsKey, id: '' }); setForm(previous => ({ ...previous, id: '' })); }
   }
   function selectMatch(id) {
+    cancelPendingSceneLoad();
     const match = filteredMatches.find(candidate => String(candidate.id) === String(id));
     if (!match || !optionsCurrent) return;
     restoreMatchRef.current = null; setManualMatch(false); setMatchSelection({ key: currentOptionsKey, id: String(match.id) });
@@ -159,28 +192,33 @@ export default function App() {
     fetchData(query, sections, false, changed ? widgetsForKind('match', sections) : null);
   }
   function toggleManualMatch(enabled) {
+    cancelPendingSceneLoad();
     restoreMatchRef.current = null; setManualMatch(enabled);
     if (!enabled) { setMatchSelection({ key: currentOptionsKey, id: '' }); setForm(previous => ({ ...previous, id: '' })); }
   }
   function retryMatchOptions() {
+    cancelPendingSceneLoad();
     if (!manualMatch && form.id) restoreMatchRef.current = { key: currentOptionsKey, id: String(form.id), manualMissing: false };
     setListRetry(previous => previous + 1);
   }
   function openMatch(id) {
+    cancelPendingSceneLoad();
     if (!id) return;
     const query = { ...scene.query, kind: 'match', id: String(id), date: scene.query.date || INITIAL_QUERY.date }, changed = scene.query.kind !== 'match', sections = changed ? KINDS.match.sections : scene.sections;
     restoreMatchPicker(query); if (changed) setSelected(sections[0]); fetchData(query, sections, false, changed ? widgetsForKind('match', sections) : null);
   }
   function updateWidget(key, value) {
+    cancelPendingSceneLoad();
     setScene(previous => ({ ...previous, widgets: previous.widgets.map(w => {
       if (w.id !== selected) return w;
       const next = { ...w, [key]: key === 'fontSize' ? Math.round(value) : value };
-      next.width = Math.min(previous.canvas.width, Math.max(80, next.width)); next.height = Math.min(previous.canvas.height, Math.max(60, next.height));
+      next.width = Math.min(previous.canvas.width, Math.max(80, next.width)); next.height = Math.min(previous.canvas.height, Math.max(40, next.height));
       next.x = Math.max(0, Math.min(previous.canvas.width - next.width, next.x)); next.y = Math.max(0, Math.min(previous.canvas.height - next.height, next.y));
       return next;
     }) }));
   }
   function startDrag(e, current, delta) {
+    cancelPendingSceneLoad();
     setSelected(current.id);
     if (delta) { setScene(previous => ({ ...previous, widgets: previous.widgets.map(w => w.id === current.id ? { ...w, x: Math.max(0, Math.min(previous.canvas.width - w.width, w.x + delta.x)), y: Math.max(0, Math.min(previous.canvas.height - w.height, w.y + delta.y)) } : w) })); return; }
     if (e.button !== 0) return;
@@ -188,6 +226,8 @@ export default function App() {
     dragRef.current = { id: current.id, startX: e.clientX, startY: e.clientY, x: current.x, y: current.y, scale: previewRef.current.getBoundingClientRect().width / scene.canvas.width };
   }
   function applyLayout(preset) {
+    if (isKindTransition()) return;
+    cancelPendingSceneLoad();
     const kind = scene.query.kind;
     if (preset === 'lineup' && kind !== 'match') return;
     let sections = kind === 'match' ? preset === 'lineup' ? ['scoreboard', 'lineup'] : preset === 'score' ? ['scoreboard'] : preset === 'lower' ? ['scoreboard', 'stats'] : ['scoreboard', 'stats', 'lineup', 'fixtures'] : KINDS[kind].sections.filter(s => s !== 'stats');
@@ -198,33 +238,56 @@ export default function App() {
     if (kind !== 'match') { sections = KINDS[kind].sections.filter(s => kind !== 'team' || s !== 'standings'); widgets = widgetsForKind(kind, sections); }
     setScene(previous => ({ ...previous, sections, widgets })); setSelected(sections[0]);
     if (busyRef.current || sections.some(section => !data?.modules?.[section])) {
-      const query = busyRef.current && activeQueryRef.current?.kind === kind ? activeQueryRef.current : scene.query;
-      fetchData(query, sections, false, widgets);
+      fetchData(pendingQuery(kind), sections, false, widgets);
     }
     notify('レイアウトを適用しました');
   }
   async function saveScene() {
     if (queryDirty || !data || loading || !scene.name.trim() || (form.kind === 'match' && !matchFetchAllowed)) return;
     setSaving(true);
+    const submitted = sceneRef.current, intent = sceneIntentRef.current;
     try {
-      const saved = await api(scene.id ? `/api/scenes/${scene.id}` : '/api/scenes', { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
-      setScene(saved); setForm(previous => ({ ...saved.query, date: saved.query.date || previous.date || INITIAL_QUERY.date })); setSavedState(JSON.stringify(saved)); setScenes(previous => [...previous.filter(s => s.id !== saved.id), saved]); notify('シーンを保存しました。OBS で使用できます');
-    } catch (failure) { setError(failure.message); }
+      const saved = await api(submitted.id ? `/api/scenes/${submitted.id}` : '/api/scenes', { method: submitted.id ? 'PUT' : 'POST', body: JSON.stringify(submitted) });
+      if (!deletedSceneIdsRef.current.has(saved.id)) setScenes(previous => [...previous.filter(s => s.id !== saved.id), saved]);
+      if (intent !== sceneIntentRef.current) { notify('シーンを保存しました。シーン一覧から開けます'); return; }
+      const edited = sceneSignature(submitted) !== sceneSignature(sceneRef.current) || queryKey(formRef.current) !== queryKey(submitted.query);
+      setScene(previous => reconcileSavedScene(submitted, previous, saved, INITIAL_QUERY.date));
+      setForm(previous => queryKey(previous) === queryKey(submitted.query) ? { ...saved.query, date: saved.query.date || previous.date || INITIAL_QUERY.date } : previous);
+      setSavedState(sceneSignature(saved)); notify(edited ? '保存開始時の内容を保存しました。残りの変更は未保存です' : 'シーンを保存しました。OBS で使用できます');
+    } catch (failure) { if (intent === sceneIntentRef.current) setError(`シーンを保存できません：${failure.message}`); else notify(`前のシーンを保存できません：${failure.message}`); }
     finally { setSaving(false); }
   }
   async function loadScene(id) {
-    try { const saved = await api(`/api/scenes/${id}`); setData(null); setScene(saved); restoreMatchPicker(saved.query); setSavedState(JSON.stringify(saved)); setSelected(saved.sections[0] || ''); setShowScenes(false); await fetchData(saved.query, saved.sections); notify('シーンを読み込みました'); }
-    catch (failure) { setError(failure.message); }
+    const intent = ++sceneIntentRef.current;
+    sceneLoadRef.current?.abort(); const controller = new AbortController(); sceneLoadRef.current = controller;
+    cancelDataRequest(); setLoading(true);
+    try {
+      const saved = await api(`/api/scenes/${id}`, { signal: controller.signal });
+      // GET completion order is not selection order; a previous load must not replace a newer load/new scene.
+      if (intent !== sceneIntentRef.current || controller.signal.aborted) return;
+      if (sceneLoadRef.current === controller) sceneLoadRef.current = null;
+      setData(null); setScene(saved); restoreMatchPicker(saved.query); setSavedState(sceneSignature(saved)); setSelected(saved.sections[0] || ''); setShowScenes(false); await fetchData(saved.query, saved.sections);
+      if (intent === sceneIntentRef.current) notify('シーンを読み込みました');
+    } catch (failure) { if (intent === sceneIntentRef.current && failure.name !== 'AbortError') setError(`シーンを読み込めません：${failure.message}`); }
+    finally { if (sceneLoadRef.current === controller) sceneLoadRef.current = null; if (intent === sceneIntentRef.current && !busyRef.current) setLoading(false); }
   }
   async function deleteScene(id) {
-    try { await api(`/api/scenes/${id}`, { method: 'DELETE' }); setScenes(previous => previous.filter(s => s.id !== id)); if (scene.id === id) setScene(previous => ({ ...previous, id: undefined })); setDeleteConfirm(null); notify('シーンを削除しました'); }
+    try { await api(`/api/scenes/${id}`, { method: 'DELETE' }); deletedSceneIdsRef.current.add(id); setScenes(previous => previous.filter(s => s.id !== id)); if (sceneRef.current.id === id) { cancelPendingSceneLoad(); ++sceneIntentRef.current; setScene(previous => previous.id === id ? { ...previous, id: undefined } : previous); } setDeleteConfirm(null); notify('シーンを削除しました'); }
     catch (failure) { setError(failure.message); }
   }
   async function copyObs() {
     try { await navigator.clipboard.writeText(obsUrl); notify('OBS ブラウザソースの URL をコピーしました'); }
     catch { notify('コピーできませんでした。下の URL を選択してコピーしてください'); }
   }
-  function newScene() { const fresh = makeScene(); setData(null); setScene(fresh); restoreMatchPicker(fresh.query); setSelected('scoreboard'); setShowScenes(false); fetchData(fresh.query, fresh.sections); }
+  function cancelDataRequest() { ++seq.current; requestRef.current?.abort(); busyRef.current = false; setLoading(false); }
+  function cancelPendingSceneLoad() {
+    if (!sceneLoadRef.current) return;
+    // A deliberate edit/select is a newer intent than an earlier GET; polling must not invalidate that intent.
+    ++sceneIntentRef.current; sceneLoadRef.current.abort(); sceneLoadRef.current = null; setLoading(false);
+  }
+  function editScene(updater) { cancelPendingSceneLoad(); setScene(updater); }
+  function refreshCommittedData() { cancelPendingSceneLoad(); fetchData(sceneRef.current.query, sceneRef.current.sections); }
+  function newScene() { ++sceneIntentRef.current; sceneLoadRef.current?.abort(); sceneLoadRef.current = null; cancelDataRequest(); const fresh = makeScene(); setData(null); setScene(fresh); restoreMatchPicker(fresh.query); setSelected('scoreboard'); setShowScenes(false); fetchData(fresh.query, fresh.sections); }
 
   return <div className="studio-app">
     <header className="topbar"><a className="brand" href="/" aria-label="FOT STUDIO"><span className="brand-mark"><Film size={19} /></span><b>FOT<span>/</span>STUDIO</b></a><div className="topbar-divider" /><span className="topbar-label">WATCH ALONG CREATOR</span><nav><button className="active" onClick={() => { setShowScenes(false); setShowHelp(false); }}>スタジオ</button><button onClick={() => setShowScenes(true)}>マイシーン<span>{scenes.length.toString().padStart(2, '0')}</span></button><button onClick={() => setShowHelp(true)}>使い方<ExternalLink size={12} /></button></nav><div className="topbar-right"><span className="ready-dot" />LOCAL WORKSPACE<Monitor size={16} /></div></header>
@@ -252,15 +315,15 @@ export default function App() {
         {queryDirty && <div className="pending-note">{form.kind === 'match' && !manualMatch ? '条件を変更しました。試合を選択して反映' : '条件を変更しました。取得して反映'}</div>}
         {scene.query.kind !== 'match' && Array.isArray(data?.modules?.fixtures) && data.modules.fixtures.some(match => match.id) && <div className="fixture-picker"><SmallLabel>取得した日程から試合詳細へ</SmallLabel><Select aria-label="取得した日程から試合を選ぶ" value="" onChange={e => openMatch(e.target.value)}><option value="">試合を選んで取得…</option>{data.modules.fixtures.filter(match => match.id).map((match, i) => <option key={`${match.id}-${i}`} value={match.id}>{typeof match.home === 'object' ? match.home.name : match.home} vs {typeof match.away === 'object' ? match.away.name : match.away}</option>)}</Select></div>}
         <div className="panel-section-header"><span>表示する情報</span><small>{scene.sections.length} SELECTED</small></div>
-        <div className="section-toggles">{KINDS[scene.query.kind].sections.map(section => <label key={section} className={scene.sections.includes(section) ? 'checked' : ''}><input type="checkbox" disabled={loading && !data} checked={scene.sections.includes(section)} onChange={() => toggleSection(section)} /><span className="custom-checkbox">{scene.sections.includes(section) && <Check size={12} />}</span><span>{SECTION_NAMES[section]}</span></label>)}</div>
+        <div className="section-toggles">{KINDS[scene.query.kind].sections.map(section => <label key={section} className={scene.sections.includes(section) ? 'checked' : ''}><input type="checkbox" disabled={crossKindTransition || (loading && !data)} checked={scene.sections.includes(section)} onChange={() => toggleSection(section)} /><span className="custom-checkbox">{scene.sections.includes(section) && <Check size={12} />}</span><span>{SECTION_NAMES[section]}</span></label>)}</div>
         <div className="source-footer"><Shield size={16} /><p>映像を使わず、データで試合を楽しむ。<br /><span>サッカー同時視聴配信のために。</span></p></div>
       </div></aside>
 
-      <section className="editor-column"><div className="editor-header"><div><div className="eyebrow">OVERLAY STUDIO</div><input className="scene-name" aria-label="シーン名" maxLength={80} value={scene.name} onChange={e => setScene(previous => ({ ...previous, name: e.target.value }))} /></div><span className="resolution-label">1920 × 1080 <span>16:9</span></span></div>
-        <div className="editor-toolbar"><div className="view-tabs"><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}><Eye size={14} />プレビュー</button><button className={tab === 'json' ? 'active' : ''} onClick={() => setTab('json')}><Braces size={14} />JSON</button></div><div className="toolbar-right"><span className={`data-indicator ${sourceDemo ? 'demo' : 'live'}`}><i />{sourceDemo ? 'DEMO DATA' : 'FOTMOB DATA'}</span><button aria-label="現在の条件で再取得" title="現在の条件で再取得" disabled={loading || !data} onClick={() => fetchData(scene.query, scene.sections)}><RefreshCw className={loading ? 'spin' : ''} size={14} /></button></div></div>
+      <section className="editor-column"><div className="editor-header"><div><div className="eyebrow">OVERLAY STUDIO</div><input className="scene-name" aria-label="シーン名" maxLength={80} value={scene.name} onChange={e => editScene(previous => ({ ...previous, name: e.target.value }))} /></div><span className="resolution-label">{scene.canvas.width} × {scene.canvas.height} <span>{aspectRatioLabel(scene.canvas.width, scene.canvas.height)}</span></span></div>
+        <div className="editor-toolbar"><div className="view-tabs"><button className={tab === 'preview' ? 'active' : ''} onClick={() => setTab('preview')}><Eye size={14} />プレビュー</button><button className={tab === 'json' ? 'active' : ''} onClick={() => setTab('json')}><Braces size={14} />JSON</button></div><div className="toolbar-right"><span className={`data-indicator ${sourceDemo ? 'demo' : 'live'}`}><i />{sourceDemo ? 'DEMO DATA' : 'FOTMOB DATA'}</span><button aria-label="現在の条件で再取得" title="現在の条件で再取得" disabled={loading || !data} onClick={refreshCommittedData}><RefreshCw className={loading ? 'spin' : ''} size={14} /></button></div></div>
         {error && <div className="error-banner" role="alert"><span>{data ? '最終取得データを表示中。' : ''}{error}</span><button aria-label="エラーを閉じる" onClick={() => setError('')}><X size={14} /></button></div>}
         {tab === 'preview' ? <div className="preview-shell"><div className="preview-ruler"><span>0</span><span>480</span><span>960</span><span>1440</span><span>1920</span></div><div className="preview-stage" ref={previewRef} style={{ aspectRatio: `${scene.canvas.width} / ${scene.canvas.height}` }}><div className="pitch-decoration"><div className="pitch-center-circle" /><div className="pitch-center-line" /><span>FOOTBALL<br />WITHOUT THE FOOTAGE.</span></div><div className="preview-scale" style={{ transform: `scale(${scale})` }}><Canvas scene={scene} data={data} selected={selected} onSelect={setSelected} onDrag={startDrag} editing canvasRef={canvasRef} /></div>{loading && !data && <div className="preview-loading"><LoaderCircle className="spin" size={24} /><span>データを読み込んでいます</span></div>}{!scene.sections.length && <div className="preview-loading"><Layers3 size={28} /><span>左のパネルから表示する情報を選択</span></div>}</div><div className="preview-caption"><span><MousePointer2 size={13} />ドラッグで配置 · 矢印キーで 10px 移動</span><span>{Math.round(scale * 100)}%<Maximize2 size={12} /></span></div></div> : <div className="json-view"><div className="json-description"><span>選択した情報のみの JSON</span><button onClick={() => downloadJson(safeData)} disabled={!data}><ArrowDownToLine size={14} />保存</button></div><pre>{JSON.stringify(safeData || { status: 'データを取得してください' }, null, 2)}</pre></div>}
-        <div className="below-preview"><div className="layout-section"><div className="panel-section-header"><span><LayoutTemplate size={15} />レイアウトプリセット</span><small>START WITH A STYLE</small></div><div className="layout-options"><button onClick={() => applyLayout('full')}><span className="layout-thumbnail full-layout"><i /><i /><i /><i /></span><span>マッチデー<small>すべての情報を一画面に</small></span></button><button onClick={() => applyLayout('lower')}><span className="layout-thumbnail lower-layout"><i /><i /></span><span>ローワーサード<small>トーク画面の下部に</small></span></button><button onClick={() => applyLayout('score')}><span className="layout-thumbnail score-layout"><i /></span><span>ミニマル<small>スコアを主役に</small></span></button><button aria-label="スコアボード＋出場選手" disabled={scene.query.kind !== 'match'} title={scene.query.kind === 'match' ? '交代を反映して表示' : '試合データで利用できます'} onClick={() => applyLayout('lineup')}><span className="layout-thumbnail lineup-layout"><i /><i /></span><span>スコアボード＋出場選手<small>{scene.query.kind === 'match' ? '交代を反映して表示' : '試合データで利用'}</small></span></button></div></div>
+        <div className="below-preview"><div className="layout-section"><div className="panel-section-header"><span><LayoutTemplate size={15} />レイアウトプリセット</span><small>START WITH A STYLE</small></div><div className="layout-options"><button disabled={crossKindTransition} title={crossKindTransition ? 'データ種別の切替が完了してから変更できます' : undefined} onClick={() => applyLayout('full')}><span className="layout-thumbnail full-layout"><i /><i /><i /><i /></span><span>マッチデー<small>すべての情報を一画面に</small></span></button><button disabled={crossKindTransition} title={crossKindTransition ? 'データ種別の切替が完了してから変更できます' : undefined} onClick={() => applyLayout('lower')}><span className="layout-thumbnail lower-layout"><i /><i /></span><span>ローワーサード<small>トーク画面の下部に</small></span></button><button disabled={crossKindTransition} title={crossKindTransition ? 'データ種別の切替が完了してから変更できます' : undefined} onClick={() => applyLayout('score')}><span className="layout-thumbnail score-layout"><i /></span><span>ミニマル<small>スコアを主役に</small></span></button><button aria-label="スコアボード＋出場選手" disabled={crossKindTransition || scene.query.kind !== 'match'} title={crossKindTransition ? 'データ種別の切替が完了してから変更できます' : scene.query.kind === 'match' ? '交代を反映して表示' : '試合データで利用できます'} onClick={() => applyLayout('lineup')}><span className="layout-thumbnail lineup-layout"><i /><i /></span><span>スコアボード＋出場選手<small>{scene.query.kind === 'match' ? '交代を反映して表示' : '試合データで利用'}</small></span></button></div></div>
           <div className="output-panel"><div className="output-icon"><Monitor size={23} /></div><div className="output-content"><div className="output-title">OBS に、そのまま。</div><p>{sceneDirty ? '未保存の変更があります。保存すると OBS に反映します。' : scene.id ? 'ブラウザソースに URL を貼り付けて、配信に追加。' : 'シーンを保存すると OBS 用 URL と ZIP を生成できます。'}</p>{scene.id && <input className="obs-url" aria-label="OBS ブラウザソース URL" value={obsUrl} readOnly onFocus={e => e.target.select()} />}</div><div className="output-actions"><button className="button primary" onClick={copyObs} disabled={!scene.id || sceneDirty}><Copy size={14} />URL をコピー</button>{scene.id ? <a className="export-link" href={`/api/scenes/${scene.id}/export`} download aria-disabled={sceneDirty} onClick={e => { if (sceneDirty) e.preventDefault(); }}><ArrowDownToLine size={13} />HTML / CSS / JSON を ZIP で保存</a> : <span className="export-link disabled"><ArrowDownToLine size={13} />HTML / CSS / JSON を ZIP で保存</span>}</div></div>
         </div>
         <div className="editor-status"><span><span className="ready-dot" />{data ? `最終取得 ${timeLabel(data.fetchedAt, scene.query.timezone)}` : 'データ待機中'}</span><span>{sourceDemo ? 'サンプルデータ · 実際のスコアではありません' : 'FotMob のデータ提供状況に応じて更新'}</span></div>
@@ -268,14 +331,14 @@ export default function App() {
       </section>
 
       <aside className="inspector panel"><div className="panel-heading"><span><SlidersHorizontal size={16} />レイアウト設定</span></div><div className="inspector-content"><SmallLabel>編集するパーツ</SmallLabel><Select value={selected || ''} onChange={e => setSelected(e.target.value)}>{!scene.sections.length && <option value="">パーツを選択してください</option>}{scene.sections.map(section => <option key={section} value={scene.widgets.find(w => w.section === section)?.id || section}>{SECTION_NAMES[section]}</option>)}</Select>
-        {widget && scene.sections.includes(widget.section) ? <><div className="inspector-section-title">POSITION <span>px</span></div><div className="number-grid"><NumberField label="X" value={widget.x} min={0} max={scene.canvas.width - widget.width} onChange={v => updateWidget('x', v)} /><NumberField label="Y" value={widget.y} min={0} max={scene.canvas.height - widget.height} onChange={v => updateWidget('y', v)} /></div><div className="inspector-section-title">SIZE <span>px</span></div><div className="number-grid"><NumberField label="幅" value={widget.width} min={80} max={scene.canvas.width} onChange={v => updateWidget('width', v)} /><NumberField label="高さ" value={widget.height} min={60} max={scene.canvas.height} onChange={v => updateWidget('height', v)} /></div><div className="font-field"><NumberField label="文字サイズ" value={widget.fontSize} min={12} max={72} suffix="px" onChange={v => updateWidget('fontSize', v)} /></div><div className="inspector-note">枠内表示には件数の上限があります。<br />スタッツ 6・日程 16・順位 24・選手 30。<br />全件は JSON で取得できます。</div></> : <div className="inspector-note">表示する情報を選ぶと位置やサイズを調整できます。</div>}
-        <div className="inspector-divider" /><div className="inspector-section-title">STYLE</div><label className="color-control"><span>アクセント</span><span><input type="color" aria-label="アクセントカラー" value={scene.theme.accent} onChange={e => setScene(previous => ({ ...previous, theme: { ...previous.theme, accent: e.target.value } }))} /><small>{scene.theme.accent.toUpperCase()}</small></span></label><label className="color-control"><span>パネル</span><span><input type="color" aria-label="パネルカラー" value={scene.theme.background} onChange={e => setScene(previous => ({ ...previous, theme: { ...previous.theme, background: e.target.value } }))} /><small>{scene.theme.background.toUpperCase()}</small></span></label><label className="color-control"><span>文字</span><span><input type="color" aria-label="文字カラー" value={scene.theme.text} onChange={e => setScene(previous => ({ ...previous, theme: { ...previous.theme, text: e.target.value } }))} /><small>{scene.theme.text.toUpperCase()}</small></span></label><label className="opacity-control"><span>パネルの不透明度<b>{Math.round(scene.theme.opacity * 100)}%</b></span><input type="range" min="0" max="1" step="0.01" aria-label="パネルの不透明度" value={scene.theme.opacity} onChange={e => setScene(previous => ({ ...previous, theme: { ...previous.theme, opacity: Number(e.target.value) } }))} /></label><SmallLabel>キャンバス背景</SmallLabel><Select value={scene.canvas.background === 'transparent' ? 'transparent' : 'solid'} onChange={e => setScene(previous => ({ ...previous, canvas: { ...previous.canvas, background: e.target.value === 'transparent' ? 'transparent' : '#101315' } }))}><option value="transparent">透過 · OBS 向け</option><option value="solid">背景色あり</option></Select>{scene.canvas.background !== 'transparent' && <input type="color" className="background-color" aria-label="キャンバス背景色" value={scene.canvas.background} onChange={e => setScene(previous => ({ ...previous, canvas: { ...previous.canvas, background: e.target.value } }))} />}
-        <div className="inspector-divider" /><div className="refresh-setting"><Clock3 size={14} /><NumberField label="自動更新" value={scene.pollInterval} min={30} max={3600} suffix="秒" onChange={v => setScene(previous => ({ ...previous, pollInterval: Math.round(v) }))} /></div><p className="refresh-note">スタジオ・OBS 画面で自動更新。<br />最短 30 秒に 1 回取得します。</p><button className="help-link" onClick={() => setShowHelp(true)}><CircleHelp size={14} />OBS の設定方法<ArrowRight size={12} /></button>
+        {widget && scene.sections.includes(widget.section) ? <><div className="inspector-section-title">POSITION <span>px</span></div><div className="number-grid"><NumberField label="X" value={widget.x} min={0} max={scene.canvas.width - widget.width} onChange={v => updateWidget('x', v)} /><NumberField label="Y" value={widget.y} min={0} max={scene.canvas.height - widget.height} onChange={v => updateWidget('y', v)} /></div><div className="inspector-section-title">SIZE <span>px</span></div><div className="number-grid"><NumberField label="幅" value={widget.width} min={80} max={scene.canvas.width} onChange={v => updateWidget('width', v)} /><NumberField label="高さ" value={widget.height} min={40} max={scene.canvas.height} onChange={v => updateWidget('height', v)} /></div><div className="font-field"><NumberField label="文字サイズ" value={widget.fontSize} min={10} max={96} suffix="px" onChange={v => updateWidget('fontSize', v)} /></div><div className="inspector-note">枠内表示には件数の上限があります。<br />スタッツ 6・日程 16・順位 24・選手 30。<br />全件は JSON で取得できます。</div></> : <div className="inspector-note">表示する情報を選ぶと位置やサイズを調整できます。</div>}
+        <div className="inspector-divider" /><div className="inspector-section-title">STYLE</div><label className="color-control"><span>アクセント</span><span><input type="color" aria-label="アクセントカラー" value={colorInputValue(scene.theme.accent)} onChange={e => editScene(previous => ({ ...previous, theme: { ...previous.theme, accent: e.target.value } }))} /><small>{scene.theme.accent.toUpperCase()}</small></span></label><label className="color-control"><span>パネル</span><span><input type="color" aria-label="パネルカラー" value={colorInputValue(scene.theme.background)} onChange={e => editScene(previous => ({ ...previous, theme: { ...previous.theme, background: e.target.value } }))} /><small>{scene.theme.background.toUpperCase()}</small></span></label><label className="color-control"><span>文字</span><span><input type="color" aria-label="文字カラー" value={colorInputValue(scene.theme.text)} onChange={e => editScene(previous => ({ ...previous, theme: { ...previous.theme, text: e.target.value } }))} /><small>{scene.theme.text.toUpperCase()}</small></span></label><label className="opacity-control"><span>パネルの不透明度<b>{Math.round(scene.theme.opacity * 100)}%</b></span><input type="range" min="0" max="1" step="0.01" aria-label="パネルの不透明度" value={scene.theme.opacity} onChange={e => editScene(previous => ({ ...previous, theme: { ...previous.theme, opacity: Number(e.target.value) } }))} /></label><SmallLabel>キャンバス背景</SmallLabel><Select value={scene.canvas.background === 'transparent' ? 'transparent' : 'solid'} onChange={e => editScene(previous => ({ ...previous, canvas: { ...previous.canvas, background: e.target.value === 'transparent' ? 'transparent' : '#101315' } }))}><option value="transparent">透過 · OBS 向け</option><option value="solid">背景色あり</option></Select>{scene.canvas.background !== 'transparent' && <input type="color" className="background-color" aria-label="キャンバス背景色" value={colorInputValue(scene.canvas.background)} onChange={e => editScene(previous => ({ ...previous, canvas: { ...previous.canvas, background: e.target.value } }))} />}
+        <div className="inspector-divider" /><div className="refresh-setting"><Clock3 size={14} /><NumberField label="自動更新" value={Math.max(MIN_POLL_SECONDS, scene.pollInterval)} min={MIN_POLL_SECONDS} max={3600} suffix="秒" onChange={v => editScene(previous => ({ ...previous, pollInterval: Math.round(v) }))} /></div><p className="refresh-note">スタジオ・OBS 画面で自動更新。<br />最短 30 秒に 1 回取得します。</p><button className="help-link" onClick={() => setShowHelp(true)}><CircleHelp size={14} />OBS の設定方法<ArrowRight size={12} /></button>
       </div></aside>
     </main>
     <footer className="site-footer"><span>FOT / STUDIO</span><p>MADE FOR THE LOVE OF THE GAME.</p><span>v1.0 · LOCAL FIRST</span></footer>
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
-    {showHelp && <div className="modal-backdrop" onClick={() => setShowHelp(false)}><section className="modal help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowHelp(false)}><X size={20} /></button><div className="eyebrow">GO LIVE IN 3 STEPS</div><h2 id="help-title">配信に、あなたのスタイルを。</h2><div className="help-steps"><div><b>01</b><span><strong>データとパーツを選ぶ</strong><p>試合タブで日付を選ぶと、当日の試合一覧を自動取得します。リーグで絞り込んで試合を選ぶと、そのまま詳細データを表示。デモ・実データは取得モードで切り替えます。</p></span></div><div><b>02</b><span><strong>配置して、シーンを保存</strong><p>プレビューをドラッグ、または X・Y・幅・高さを指定して調整します。最後に「シーンを保存」。</p></span></div><div><b>03</b><span><strong>OBS にブラウザソースを追加</strong><p>URL を貼り付け、幅 <em>1920</em>・高さ <em>1080</em> に設定。背景は透過にできます。起動した PC と同じ PC の OBS で localhost の URL を使用してください。</p></span></div></div><div className="help-callout"><Braces size={20} /><p>ZIP は保存時点の固定データです（自動更新なし）。<br />JSON を保存して、他のツールでも利用できます。</p></div><button className="button primary" onClick={() => setShowHelp(false)}>スタジオへ戻る<ArrowRight size={16} /></button></section></div>}
-    {showScenes && <div className="modal-backdrop" onClick={() => setShowScenes(false)}><section className="modal scenes-modal" role="dialog" aria-modal="true" aria-labelledby="scenes-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowScenes(false)}><X size={20} /></button><div className="eyebrow">YOUR COLLECTION</div><h2 id="scenes-title">マイシーン</h2><p className="modal-description">試合や配信スタイルに合わせて、レイアウトを使い分ける。</p><button className="button primary" onClick={newScene}><Plus size={16} />新しいシーンを作成</button><div className="scene-list">{scenes.length ? scenes.map(saved => <div key={saved.id} className="saved-scene"><div className="saved-scene-art"><Grid2X2 size={26} /></div><div><strong>{saved.name}</strong><span>{saved.query?.mode === 'demo' ? 'DEMO' : 'LIVE'} · {saved.sections?.length || 0} パーツ · {saved.pollInterval || 30} 秒更新</span></div><button className="button subtle" onClick={() => loadScene(saved.id)}>開く<ArrowRight size={14} /></button><button className="delete-button" title="シーンを削除" aria-label={`${saved.name}を削除`} onClick={() => setDeleteConfirm(saved.id)}><Trash2 size={16} /></button>{deleteConfirm === saved.id && <div className="delete-confirm"><span>このシーンを削除しますか？ OBS の URL も無効になります。</span><button onClick={() => setDeleteConfirm(null)}>キャンセル</button><button onClick={() => deleteScene(saved.id)}>削除する</button></div>}</div>) : <div className="scene-empty"><Layers3 size={32} /><strong>最初のシーンを作りましょう</strong><p>スタジオでシーンを保存すると、ここに表示されます。</p></div>}</div></section></div>}
+    {showHelp && <div className="modal-backdrop" onClick={() => setShowHelp(false)}><section className="modal help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowHelp(false)}><X size={20} /></button><div className="eyebrow">GO LIVE IN 3 STEPS</div><h2 id="help-title">配信に、あなたのスタイルを。</h2><div className="help-steps"><div><b>01</b><span><strong>データとパーツを選ぶ</strong><p>試合タブで日付を選ぶと、当日の試合一覧を自動取得します。リーグで絞り込んで試合を選ぶと、そのまま詳細データを表示。デモ・実データは取得モードで切り替えます。</p></span></div><div><b>02</b><span><strong>配置して、シーンを保存</strong><p>プレビューをドラッグ、または X・Y・幅・高さを指定して調整します。最後に「シーンを保存」。</p></span></div><div><b>03</b><span><strong>OBS にブラウザソースを追加</strong><p>URL を貼り付け、幅 <em>{scene.canvas.width}</em>・高さ <em>{scene.canvas.height}</em> に設定。背景は透過にできます。起動した PC と同じ PC の OBS で localhost の URL を使用してください。</p></span></div></div><div className="help-callout"><Braces size={20} /><p>ZIP は保存時点の固定データです（自動更新なし）。<br />JSON を保存して、他のツールでも利用できます。</p></div><button className="button primary" onClick={() => setShowHelp(false)}>スタジオへ戻る<ArrowRight size={16} /></button></section></div>}
+    {showScenes && <div className="modal-backdrop" onClick={() => setShowScenes(false)}><section className="modal scenes-modal" role="dialog" aria-modal="true" aria-labelledby="scenes-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowScenes(false)}><X size={20} /></button><div className="eyebrow">YOUR COLLECTION</div><h2 id="scenes-title">マイシーン</h2><p className="modal-description">試合や配信スタイルに合わせて、レイアウトを使い分ける。</p><button className="button primary" onClick={newScene}><Plus size={16} />新しいシーンを作成</button><div className="scene-list">{scenes.length ? scenes.map(saved => <div key={saved.id} className="saved-scene"><div className="saved-scene-art"><Grid2X2 size={26} /></div><div><strong>{saved.name}</strong><span>{saved.query?.mode === 'demo' ? 'DEMO' : 'LIVE'} · {saved.sections?.length || 0} パーツ · {Math.max(MIN_POLL_SECONDS, saved.pollInterval || MIN_POLL_SECONDS)} 秒更新</span></div><button className="button subtle" onClick={() => loadScene(saved.id)}>開く<ArrowRight size={14} /></button><button className="delete-button" title="シーンを削除" aria-label={`${saved.name}を削除`} onClick={() => setDeleteConfirm(saved.id)}><Trash2 size={16} /></button>{deleteConfirm === saved.id && <div className="delete-confirm"><span>このシーンを削除しますか？ OBS の URL も無効になります。</span><button onClick={() => setDeleteConfirm(null)}>キャンセル</button><button onClick={() => deleteScene(saved.id)}>削除する</button></div>}</div>) : <div className="scene-empty"><Layers3 size={32} /><strong>最初のシーンを作りましょう</strong><p>スタジオでシーンを保存すると、ここに表示されます。</p></div>}</div></section></div>}
   </div>;
 }

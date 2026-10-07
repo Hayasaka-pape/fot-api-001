@@ -21,8 +21,8 @@ DEMO_MATCHES = [
 
 def demo_response(query: Query):
     date = query.date or "2026-10-07"
-    # The fictional daily schedule is defined in the requested timezone so a
-    # selected demo match's date and kickoff remain consistent with its details.
+    # Converting a fixed UTC demo date could move a selected match onto another
+    # day. Define the fictional schedule locally so list and detail stay aligned.
     def kickoff_for(match):
         return datetime.fromisoformat(f"{date}T{match['hour']:02}:00:00").replace(tzinfo=ZoneInfo(query.timezone)).isoformat()
     selected = next((match for match in DEMO_MATCHES if match["id"] == query.id), DEMO_MATCHES[0])

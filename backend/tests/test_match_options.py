@@ -24,11 +24,36 @@ def mock_app(tmp_path, raw):
     return client, requests
 
 
-def test_match_options_reuses_date_query_configuration():
+def test_match_options_reuses_date_query_configuration(monkeypatch):
+    monkeypatch.delenv("FOTMOB_TIMEOUT", raising=False)
     options = MatchOptionsInput(date="2026-10-07", timezone="America/New_York", mode="live", timeout=7)
     query = options.to_query()
     assert query == Query(kind="date", date="2026-10-07", timezone="America/New_York", mode="live", timeout=7, sections=["fixtures"])
-    assert MatchOptionsInput(date="2026-10-07").timeout == 15
+    assert MatchOptionsInput(date="2026-10-07").timeout == Query(kind="date", date="2026-10-07").timeout == 10
+
+
+def test_query_and_options_share_environment_defaults_but_explicit_inputs_win(monkeypatch):
+    monkeypatch.setenv("TIMEZONE", "Europe/London")
+    monkeypatch.setenv("FOTMOB_TIMEOUT", "23.5")
+    query = Query(kind="date", date="2026-10-07")
+    options = MatchOptionsInput(date="2026-10-07")
+    assert query.timeout == options.timeout == 23.5
+    assert query.timezone == options.timezone == "Europe/London"
+    explicit = {"date": "2026-10-07", "timezone": "Asia/Tokyo", "timeout": 7}
+    assert Query(kind="date", **explicit).timezone == MatchOptionsInput(**explicit).timezone == "Asia/Tokyo"
+    assert Query(kind="date", **explicit).timeout == MatchOptionsInput(**explicit).timeout == 7
+
+
+@pytest.mark.parametrize("environment,value", [("FOTMOB_TIMEOUT", "not-a-number"), ("TIMEZONE", "Not/AZone")])
+def test_bad_environment_defaults_use_validation_envelope_and_allow_explicit_overrides(tmp_path, monkeypatch, environment, value):
+    monkeypatch.setenv(environment, value)
+    client, requests = mock_app(tmp_path, {"leagues": []})
+    for endpoint, extra in (("/api/query", {"kind": "date"}), ("/api/match-options", {})):
+        bad = client.post(endpoint, json={"date": "2026-10-07", **extra})
+        assert bad.status_code == 422 and bad.json()["error"]["code"] == "VALIDATION_ERROR"
+        valid = client.post(endpoint, json={"date": "2026-10-07", "timezone": "Asia/Tokyo", "timeout": 7, **extra})
+        assert valid.status_code == 200
+    assert len(requests) == 1
 
 
 def test_live_options_keep_group_ids_same_names_and_timezones(tmp_path):

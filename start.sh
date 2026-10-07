@@ -14,9 +14,27 @@ if ! docker compose version >/dev/null 2>&1; then
   exit 1
 fi
 docker compose up --build -d --wait --wait-timeout 120
-studio_port=$(docker compose port studio 8000 | head -n 1 | awk -F: '{print $NF}')
+# Query Docker instead of .env so shell overrides and dynamically assigned ports are respected.
+# Avoid a pipeline here: POSIX set -e would only see awk's success and hide a Docker failure.
+if ! configured_port=$(docker compose port studio 8000); then
+  printf '%s\n' 'Studio is healthy and started, but its URL could not be determined. Run: docker compose port studio 8000' >&2
+  exit 1
+fi
+studio_port=${configured_port##*:}
+case "$studio_port" in
+  ''|*[!0-9]*)
+    printf '%s\n' 'Studio is healthy and started, but Docker returned an invalid port.' >&2
+    exit 1
+    ;;
+esac
+# Reject excessive digits before numeric comparison; some shells cannot represent a larger integer.
+if [ "${#studio_port}" -gt 5 ] || [ "$studio_port" -lt 1 ] || [ "$studio_port" -gt 65535 ]; then
+  printf '%s\n' 'Studio is healthy and started, but Docker returned an invalid port.' >&2
+  exit 1
+fi
 studio_url="http://localhost:${studio_port}"
 printf '\nStudio is ready: %s\n' "$studio_url"
+# The printed URL remains usable when a headless environment has no browser launcher.
 if command -v open >/dev/null 2>&1; then
   open "$studio_url" || true
 elif command -v xdg-open >/dev/null 2>&1; then

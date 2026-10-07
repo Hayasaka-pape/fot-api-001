@@ -1,5 +1,6 @@
 """Only normalize values that are present in the upstream response."""
 import re
+from math import isfinite
 from collections import Counter
 from datetime import datetime, timezone as UTC
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ from zoneinfo import ZoneInfo
 from .errors import InvalidResponseError
 from .lineup import track_lineup
 from .models import Query
+from .values import as_list, as_object
 
 KIND_SECTIONS = {
     "match": ["scoreboard", "stats", "lineup", "fixtures", "standings"],
@@ -16,12 +18,11 @@ KIND_SECTIONS = {
 }
 
 
-def obj(value):
-    return value if isinstance(value, dict) else {}
-
-
-def items(value):
-    return value if isinstance(value, list) else []
+def require_scalar(value):
+    """Keep upstream objects/nonfinite numbers out of browser text and JSON."""
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (str, int, float))
+                              or isinstance(value, float) and not isfinite(value)):
+        raise TypeError("invalid normalized scalar")
 
 
 def local_time(value, timezone):
@@ -37,7 +38,7 @@ def local_time(value, timezone):
 
 
 def status_text(status, general=None):
-    status, general = obj(status), obj(general)
+    status, general = as_object(status), as_object(general)
     reason = status.get("reason")
     if isinstance(reason, dict) and (reason.get("short") or reason.get("long")):
         return reason.get("short") or reason.get("long")
@@ -55,20 +56,20 @@ def status_text(status, general=None):
 def scores(status, home, away):
     # scoreStr is the regulation/extra-time result; some endpoints store shootout
     # totals in home.score, so use scoreStr when both are present.
-    match = re.fullmatch(r"\s*(\d+)\s*[-–:]\s*(\d+)\s*", str(obj(status).get("scoreStr", "")))
-    return (int(match[1]), int(match[2])) if match else (obj(home).get("score"), obj(away).get("score"))
+    match = re.fullmatch(r"\s*(\d+)\s*[-–:]\s*(\d+)\s*", str(as_object(status).get("scoreStr", "")))
+    return (int(match[1]), int(match[2])) if match else (as_object(home).get("score"), as_object(away).get("score"))
 
 
 def fixture(match, league, timezone, league_id=None, league_country=None):
-    match = obj(match)
-    home, away, status = obj(match.get("home")), obj(match.get("away")), obj(match.get("status"))
+    match = as_object(match)
+    home, away, status = as_object(match.get("home")), as_object(match.get("away")), as_object(match.get("status"))
     if not home.get("name") or not away.get("name"):
         return None
     home_score, away_score = scores(status, home, away)
     value = {"id": str(match.get("id", "")), "home": home["name"], "away": away["name"],
             "homeScore": home_score, "awayScore": away_score, "status": status_text(status),
             "kickoff": local_time(status.get("utcTime"), timezone),
-            "league": obj(match.get("tournament")).get("name") or league}
+            "league": as_object(match.get("tournament")).get("name") or league}
     if league_id is not None:
         value["leagueId"] = str(league_id)
     if league_country:
@@ -82,25 +83,25 @@ def extract_fixtures(raw, kind, timezone):
         if not isinstance(raw.get("leagues"), list):
             return None
         for league in raw["leagues"]:
-            for match in items(obj(league).get("matches")):
-                # id distinguishes tournament stages/groups. primaryId identifies
-                # their shared parent and must only be used if the group ID is absent.
-                league_id = obj(league).get("id") or obj(league).get("primaryId") or obj(match).get("leagueId")
-                league_country = obj(league).get("ccode") or obj(league).get("countryCode")
-                value = fixture(match, obj(league).get("name"), timezone, league_id, league_country)
+            for match in as_list(as_object(league).get("matches")):
+                # Grouping by primaryId would merge distinct tournament groups;
+                # use their own id and fall back only when it is absent.
+                league_id = as_object(league).get("id") or as_object(league).get("primaryId") or as_object(match).get("leagueId")
+                league_country = as_object(league).get("ccode") or as_object(league).get("countryCode")
+                value = fixture(match, as_object(league).get("name"), timezone, league_id, league_country)
                 if value:
                     fixtures.append(value)
         return fixtures
-    data = obj(raw.get("fixtures"))
+    data = as_object(raw.get("fixtures"))
     candidates = data.get("allMatches")
     if candidates is None:
-        candidates = obj(data.get("allFixtures")).get("fixtures")
+        candidates = as_object(data.get("allFixtures")).get("fixtures")
     if candidates is None:
         candidates = data.get("fixtures")
     if candidates is None:
         return None
-    for match in items(candidates):
-        value = fixture(match, obj(raw.get("details")).get("name") if kind == "league" else None, timezone)
+    for match in as_list(candidates):
+        value = fixture(match, as_object(raw.get("details")).get("name") if kind == "league" else None, timezone)
         if value:
             fixtures.append(value)
     return fixtures
@@ -120,8 +121,8 @@ def match_options(data):
         if league_id not in groups:
             groups[league_id] = {"id": league_id, "name": name, "matches": [], "_country": match.get("leagueCountry")}
         groups[league_id]["matches"].append({**match, "id": str(match_id), "leagueId": league_id})
-    # Preserve the original fixture league labels while making same-name
-    # dropdown options distinguishable to a human, not just to the UI's keys.
+    # IDs alone are invisible to a viewer of the dropdown. Disambiguate its labels
+    # without rewriting the original league name in fixture/JSON exports.
     name_counts = Counter(group["name"] for group in groups.values())
     country_counts = Counter((group["name"], group["_country"]) for group in groups.values())
     for group in groups.values():
@@ -156,10 +157,10 @@ def table_rows(node):
 
 
 def extract_standings(raw):
-    rows = table_rows(raw.get("table")) or table_rows(obj(raw.get("overview")).get("table")) or table_rows(obj(raw.get("content")).get("table"))
+    rows = table_rows(raw.get("table")) or table_rows(as_object(raw.get("overview")).get("table")) or table_rows(as_object(raw.get("content")).get("table"))
     output, seen = [], set()
     for row in rows:
-        row = obj(row)
+        row = as_object(row)
         key = row.get("id") or row.get("name")
         if not row.get("name") or key in seen:
             continue
@@ -174,11 +175,11 @@ def extract_standings(raw):
 
 
 def player(value, fallback_position=None):
-    value = obj(value)
-    position = value.get("position") or value.get("positionIdsDesc") or obj(value.get("role")).get("fallback") or fallback_position
+    value = as_object(value)
+    position = value.get("position") or value.get("positionIdsDesc") or as_object(value.get("role")).get("fallback") or fallback_position
     if position is None and value.get("usualPlayingPositionId") is not None:
         position = {0: "GK", 1: "DF", 2: "MF", 3: "FW"}.get(value["usualPlayingPositionId"])
-    return {"name": value.get("name") or obj(value.get("player")).get("name"),
+    return {"name": value.get("name") or as_object(value.get("player")).get("name"),
             "shirtNumber": value.get("shirtNumber"), "position": position}
 
 
@@ -187,18 +188,21 @@ def extract_lineup(raw):
 
 
 def extract_stats(raw):
-    data = obj(obj(raw.get("content")).get("stats"))
-    groups = items(obj(obj(data.get("Periods")).get("All")).get("stats"))
+    data = as_object(as_object(raw.get("content")).get("stats"))
+    groups = as_list(as_object(as_object(data.get("Periods")).get("All")).get("stats"))
     result, seen = [], set()
     for group in groups:
-        for row in items(obj(group).get("stats")):
-            row = obj(row)
+        for row in as_list(as_object(group).get("stats")):
+            row = as_object(row)
             values = row.get("stats")
             key = row.get("key") or row.get("title")
             if key in seen or row.get("type") == "title" or not isinstance(values, list) or len(values) != 2 or values == [None, None]:
                 continue
             seen.add(key)
             label = row.get("title") or key
+            require_scalar(label)
+            for value in values:
+                require_scalar(value)
             if row.get("key") in ("BallPossesion", "ball_possession"):
                 values = [f"{value}%" if value is not None else None for value in values]
             result.append({"label": label, "home": values[0], "away": values[1]})
@@ -206,17 +210,17 @@ def extract_stats(raw):
 
 
 def extract_season_stats(raw, kind):
-    data = obj(raw.get("stats"))
+    data = as_object(raw.get("stats"))
     result, seen = [], set()
     for group in ("teams", "players"):
-        for stat in items(data.get(group)):
-            stat = obj(stat)
-            participants = items(stat.get("topThree")) if kind == "league" else [obj(stat.get("participant"))]
+        for stat in as_list(data.get(group)):
+            stat = as_object(stat)
+            participants = as_list(stat.get("topThree")) if kind == "league" else [as_object(stat.get("participant"))]
             if not participants:
-                participants = [obj(stat.get("participant"))]
+                participants = [as_object(stat.get("participant"))]
             for participant in participants:
-                participant = obj(participant)
-                details = obj(participant.get("stat"))
+                participant = as_object(participant)
+                details = as_object(participant.get("stat"))
                 value = details.get("value", participant.get("value"))
                 name = participant.get("name")
                 if value is None or not name:
@@ -224,7 +228,12 @@ def extract_season_stats(raw, kind):
                 label = stat.get("header") or details.get("name")
                 if not label:
                     continue
-                # Name makes league leader rows and individual player rows unambiguous.
+                # Formatting first would stringify a changed object schema into
+                # plausible display text and defeat validation of the output.
+                for field in (label, name, value):
+                    require_scalar(field)
+                # Omitting participant names would make multiple leader/player
+                # rows look like duplicate team totals rather than individual values.
                 if kind == "league" or group == "players":
                     label = f"{label} · {name}"
                 key = (label, name)
@@ -238,19 +247,19 @@ def extract_season_stats(raw, kind):
 
 
 def extract_scoreboard(raw, timezone):
-    general, header = obj(raw.get("general")), obj(raw.get("header"))
-    home, away = obj(general.get("homeTeam")), obj(general.get("awayTeam"))
-    teams = items(header.get("teams"))
+    general, header = as_object(raw.get("general")), as_object(raw.get("header"))
+    home, away = as_object(general.get("homeTeam")), as_object(general.get("awayTeam"))
+    teams = as_list(header.get("teams"))
     if len(teams) >= 2:
-        home = {**home, **obj(teams[0])}
-        away = {**away, **obj(teams[1])}
+        home = {**home, **as_object(teams[0])}
+        away = {**away, **as_object(teams[1])}
     if not home.get("name") or not away.get("name"):
         return None
-    status = obj(header.get("status"))
+    status = as_object(header.get("status"))
     home_score, away_score = scores(status, home, away)
     home = {"id": home.get("id"), "name": home["name"], "shortName": home.get("shortName", home["name"]), "score": home_score}
     away = {"id": away.get("id"), "name": away["name"], "shortName": away.get("shortName", away["name"]), "score": away_score}
-    clock = header.get("liveTime") or status.get("liveTime") or obj(raw.get("ongoing")).get("time")
+    clock = header.get("liveTime") or status.get("liveTime") or as_object(raw.get("ongoing")).get("time")
     if isinstance(clock, dict):
         clock = clock.get("short") or clock.get("time")
     return {"home": home, "away": away, "league": general.get("leagueName"), "status": status_text(status, general),
@@ -260,53 +269,63 @@ def extract_scoreboard(raw, timezone):
 def normalize(raw: dict, query: Query):
     if query.kind == "date" and not isinstance(raw.get("leagues"), list):
         raise InvalidResponseError("FotMob の日付別応答に leagues がありません")
-    if query.kind in ("team", "league") and not obj(raw.get("details")).get("name"):
+    if query.kind in ("team", "league") and not as_object(raw.get("details")).get("name"):
         raise InvalidResponseError("FotMob の応答にチーム・大会の details がありません")
-    if query.kind == "match" and not obj(raw.get("general")):
+    if query.kind == "match" and not as_object(raw.get("general")):
         raise InvalidResponseError("FotMob の試合応答に general がありません")
+    requested = query.sections if query.sections is not None else KIND_SECTIONS[query.kind]
+    needed = set(requested)
     modules = {}
+    # Parsing everything before filtering would let a malformed, unrequested
+    # stat/roster reject an otherwise valid score-only broadcast. Read only the
+    # chosen modules and their actual dependencies, then validate that result.
     if query.kind == "match":
-        for key, value in (("scoreboard", extract_scoreboard(raw, query.timezone)), ("stats", extract_stats(raw)), ("lineup", extract_lineup(raw))):
+        scoreboard = extract_scoreboard(raw, query.timezone) if needed & {"scoreboard", "fixtures"} else None
+        for key, extractor in (("scoreboard", lambda: scoreboard), ("stats", lambda: extract_stats(raw)), ("lineup", lambda: extract_lineup(raw))):
+            if key not in needed:
+                continue
+            value = extractor()
             if value is not None:
                 modules[key] = value
-        scoreboard = modules.get("scoreboard")
-        if scoreboard:
-            modules["fixtures"] = [{"id": str(obj(raw.get("general")).get("matchId", query.id)),
+        if "fixtures" in needed and scoreboard:
+            modules["fixtures"] = [{"id": str(as_object(raw.get("general")).get("matchId", query.id)),
                                     "home": scoreboard["home"]["name"], "away": scoreboard["away"]["name"],
                                     "homeScore": scoreboard["home"]["score"], "awayScore": scoreboard["away"]["score"],
                                     "status": scoreboard["status"], "kickoff": scoreboard["kickoff"], "league": scoreboard["league"]}]
     else:
-        fixtures = extract_fixtures(raw, query.kind, query.timezone)
-        if fixtures is not None:
-            modules["fixtures"] = fixtures
-        season_stats = extract_season_stats(raw, query.kind)
-        if season_stats is not None:
-            modules["stats"] = season_stats
-    standings = extract_standings(raw)
-    if standings is not None:
-        modules["standings"] = standings
-    details = obj(raw.get("details"))
-    if query.kind == "team" and details.get("name"):
-        groups = items(obj(raw.get("squad")).get("squad"))
+        if "fixtures" in needed:
+            fixtures = extract_fixtures(raw, query.kind, query.timezone)
+            if fixtures is not None:
+                modules["fixtures"] = fixtures
+        if "stats" in needed and query.kind in ("team", "league"):
+            season_stats = extract_season_stats(raw, query.kind)
+            if season_stats is not None:
+                modules["stats"] = season_stats
+    if "standings" in needed:
+        standings = extract_standings(raw)
+        if standings is not None:
+            modules["standings"] = standings
+    details = as_object(raw.get("details"))
+    if query.kind == "team" and needed & {"team", "squad"}:
+        groups = as_list(as_object(raw.get("squad")).get("squad"))
         coach, squad = None, []
         for group in groups:
-            members = items(obj(group).get("members"))
-            if obj(group).get("title") == "coach":
-                coach = next((obj(item).get("name") for item in members if obj(item).get("name")), None)
-            else:
-                squad.extend(player(item) for item in members if obj(item).get("name"))
-        venue = obj(obj(details.get("sportsTeamJSONLD")).get("location")).get("name")
-        info = obj(obj(raw.get("overview")).get("teamInfo"))
-        modules["team"] = {"name": details["name"], "country": details.get("country"),
-                           "coach": coach or obj(info.get("coach")).get("name"), "venue": venue or obj(info.get("stadium")).get("name")}
+            members = as_list(as_object(group).get("members"))
+            if as_object(group).get("title") == "coach":
+                coach = next((as_object(item).get("name") for item in members if as_object(item).get("name")), None)
+            elif "squad" in needed:
+                squad.extend(player(item) for item in members if as_object(item).get("name"))
+        if "team" in needed:
+            venue = as_object(as_object(details.get("sportsTeamJSONLD")).get("location")).get("name")
+            info = as_object(as_object(raw.get("overview")).get("teamInfo"))
+            modules["team"] = {"name": details["name"], "country": details.get("country"),
+                               "coach": coach or as_object(info.get("coach")).get("name"), "venue": venue or as_object(info.get("stadium")).get("name")}
         if squad:
             modules["squad"] = squad
-    if query.kind == "league" and details.get("name"):
+    if query.kind == "league" and "league" in needed:
         modules["league"] = {"name": details["name"], "country": details.get("country"),
                              "season": details.get("selectedSeason") or details.get("latestSeason")}
-    requested = query.sections if query.sections is not None else KIND_SECTIONS[query.kind]
     unavailable = [section for section in requested if section not in modules]
-    modules = {key: value for key, value in modules.items() if key in requested}
     warnings = []
     if "lineup" in modules:
         warnings.extend(modules["lineup"]["warnings"])
@@ -320,27 +339,24 @@ def normalize(raw: dict, query: Query):
 
 def validate_modules(modules):
     """Reject object/list values where the browser renderer expects plain text."""
-    def scalar(value):
-        if value is not None and (isinstance(value, bool) or not isinstance(value, (str, int, float))):
-            raise TypeError("invalid normalized scalar")
     for section, value in modules.items():
         if section == "scoreboard":
             for side in ("home", "away"):
                 for field in ("id", "name", "shortName", "score"):
-                    scalar(value[side][field])
+                    require_scalar(value[side][field])
             for field in ("league", "status", "clock", "kickoff"):
-                scalar(value[field])
+                require_scalar(value[field])
         elif section == "lineup":
             for side in ("home", "away"):
-                scalar(value[side]["name"])
-                scalar(value[side]["formation"])
+                require_scalar(value[side]["name"])
+                require_scalar(value[side]["formation"])
                 for member in value[side]["players"] + value[side]["startingPlayers"]:
                     for field in member.values():
-                        scalar(field)
+                        require_scalar(field)
         elif isinstance(value, list):
             for row in value:
                 for field in row.values():
-                    scalar(field)
+                    require_scalar(field)
         else:
             for field in value.values():
-                scalar(field)
+                require_scalar(field)

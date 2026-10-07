@@ -4,10 +4,10 @@ No token forging, proxy rotation, cookies, or challenge bypass is performed.
 """
 import asyncio
 import copy
-import json
 import re
 import time
 from collections import OrderedDict
+from datetime import datetime, timezone
 
 import httpx
 
@@ -45,7 +45,7 @@ class FotmobClient:
         self.check(response)
         try:
             value = response.json()
-        except (ValueError, json.JSONDecodeError):
+        except ValueError:
             raise InvalidResponseError("FotMob の応答を JSON として読み取れませんでした")
         if not isinstance(value, dict):
             raise InvalidResponseError("FotMob の応答形式が変更されています")
@@ -63,7 +63,8 @@ class FotmobClient:
         return self.build_id
 
     async def get_match(self, client, match_id):
-        # Refresh once for a stale Next.js deploy. Denials and limits are never retried.
+        # A 404 can be a stale Next.js deployment, so refresh once. Retrying a
+        # denial/rate limit would instead repeat a refused request and hide it.
         for attempt in range(2):
             build = await self.get_build_id(client, force=attempt > 0)
             try:
@@ -71,8 +72,8 @@ class FotmobClient:
                 props = redirect.get("pageProps")
                 if not isinstance(props, dict):
                     raise InvalidResponseError("FotMob の試合応答に pageProps がありません")
-                # Current deployments may render the legacy match route directly
-                # instead of redirecting it to the canonical slug page.
+                # Some deployments return the match directly. Requiring a slug
+                # redirect would reject valid data and make a needless request.
                 if isinstance(props.get("general"), dict) and props["general"].get("matchId"):
                     return props
                 target = props.get("__N_REDIRECT", "")
@@ -95,8 +96,13 @@ class FotmobClient:
         cached = self.cache.get(key)
         if cached and time.monotonic() - cached[0] < self.cache_seconds:
             self.cache.move_to_end(key)
+            # Normalizers may enrich data; a shared mutable cache would let one
+            # scene change another scene's response. Keep the original timestamp
+            # too, so a cache hit is not presented as a fresh upstream fetch.
             return copy.deepcopy(cached[1]), cached[2]
         try:
+            # Per-request httpx timeouts alone would allow a three-step match
+            # lookup to take three times the user's configured total deadline.
             async with asyncio.timeout(query.timeout):
                 async with httpx.AsyncClient(base_url=BASE_URL, timeout=query.timeout, transport=self.transport,
                                             follow_redirects=True, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json,text/html"}) as client:
@@ -112,7 +118,6 @@ class FotmobClient:
             raise RequestTimeoutError(f"{query.timeout:g} 秒以内に FotMob の応答がありませんでした")
         except httpx.RequestError:
             raise NetworkError("FotMob に接続できませんでした。ネットワーク接続を確認してください")
-        from datetime import datetime, timezone
         fetched_at = datetime.now(timezone.utc).isoformat()
         self.cache[key] = (time.monotonic(), copy.deepcopy(data), fetched_at)
         while len(self.cache) > 128:

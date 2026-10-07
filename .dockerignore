@@ -1,5 +1,6 @@
 .git
 .github
+# Local configuration/data must not be copied into another user's production image.
 .env
 .env.*
 **/node_modules

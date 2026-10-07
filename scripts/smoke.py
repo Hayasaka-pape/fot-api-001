@@ -7,6 +7,7 @@ import urllib.request
 import zipfile
 
 
+# These are deliberately fictional IDs, not live player IDs that would change across seasons.
 def assert_current_demo_players(lineup):
     """The 67-minute demo includes known substitutions, with initial XI kept."""
     assert lineup["view"] == "onPitch", lineup
@@ -51,7 +52,7 @@ def run(base_url: str) -> None:
                 return json.loads(content)
             return content
 
-    assert request("/api/health")
+    assert request("/api/health")["status"] == "ok"
     options = request("/api/match-options", {
         "date": "2026-10-07", "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10,
     })
@@ -80,6 +81,7 @@ def run(base_url: str) -> None:
             "sections": ["scoreboard"],
         })
         assert details["source"] == "demo", details
+        assert set(details["modules"]) == {"scoreboard"}, details["modules"].keys()
         scoreboard = details["modules"]["scoreboard"]
         assert scoreboard["home"]["name"] == selected["home"], (selected, scoreboard)
         assert scoreboard["away"]["name"] == selected["away"], (selected, scoreboard)
@@ -98,13 +100,16 @@ def run(base_url: str) -> None:
     print("PASS match-options calendar date validation")
 
     demo_lineup = None
+    expected_modules = {"match": "scoreboard", "date": "fixtures", "team": "team", "league": "league"}
     for kind in ("match", "date", "team", "league"):
         result = request("/api/query", {
             "kind": kind, "id": "5315746" if kind == "match" else "47",
             "date": "2026-10-07", "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10,
         })
         assert result["source"] == "demo", result
+        assert result["kind"] == kind, result
         assert result["modules"], kind
+        assert expected_modules[kind] in result["modules"], (kind, result["modules"])
         assert result["fetchedAt"]
         if kind == "match":
             demo_lineup = result["modules"]["lineup"]
@@ -125,13 +130,15 @@ def run(base_url: str) -> None:
     }
     scene = request("/api/scenes", payload)
     scene_id = scene["id"]
+    selected_sections = set(payload["sections"])
     try:
         assert request(f"/api/scenes/{scene_id}")["name"] == payload["name"]
         payload["name"] = "Docker smoke updated"
         assert request(f"/api/scenes/{scene_id}", payload, "PUT")["name"] == payload["name"]
         assert any(item["id"] == scene_id for item in request("/api/scenes"))
         result = request(f"/api/scenes/{scene_id}/data")
-        assert set(result["modules"]) <= {"scoreboard", "stats", "lineup"}, result["modules"].keys()
+        # Demo provides every requested module; accepting a subset would hide missing saved data.
+        assert set(result["modules"]) == selected_sections, result["modules"].keys()
         assert "scoreboard" in result["modules"]
         assert_current_demo_players(result["modules"]["lineup"])
         assert result["modules"]["lineup"] == demo_lineup
@@ -141,20 +148,23 @@ def run(base_url: str) -> None:
             required = {"index.html", "style.css", "overlay.js", "data.json", "config.json"}
             assert required <= set(archive.namelist()), archive.namelist()
             exported = json.loads(archive.read("data.json"))
-            assert set(exported["modules"]) <= {"scoreboard", "stats", "lineup"}
+            assert set(exported["modules"]) == selected_sections, exported["modules"].keys()
             assert_current_demo_players(exported["modules"]["lineup"])
             assert exported["modules"]["lineup"] == result["modules"]["lineup"]
             assert json.loads(archive.read("config.json"))["snapshot"] is True
             assert json.loads(archive.read("config.json"))["canvas"]["width"] == 1920
         print("PASS scene CRUD, selected JSON, OBS route and snapshot export retain current players")
     finally:
+        # A failed export must not leave a temporary test scene in the user's normal collection.
         request(f"/api/scenes/{scene_id}", method="DELETE")
 
     try:
+        # Invalid live input must be rejected before any dependency on the upstream service.
         request("/api/query", {"kind": "date", "mode": "live", "date": "invalid", "timezone": "Asia/Tokyo"})
     except urllib.error.HTTPError as error:
-        assert error.code in (400, 422), error.code
-        assert "error" in json.loads(error.read())
+        assert error.code == 422, error.code
+        detail = json.loads(error.read())
+        assert detail["error"]["code"] == "VALIDATION_ERROR", detail
     else:
         raise AssertionError("Invalid dates must be rejected")
     assert b"<html" in request("/")
