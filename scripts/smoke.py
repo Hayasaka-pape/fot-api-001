@@ -23,6 +23,51 @@ def run(base_url: str) -> None:
             return content
 
     assert request("/api/health")
+    options = request("/api/match-options", {
+        "date": "2026-10-07", "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10,
+    })
+    assert options["source"] == "demo", options
+    assert options["fetchedAt"]
+    leagues = options["leagues"]
+    assert isinstance(leagues, list) and len(leagues) >= 2, leagues
+    league_ids, match_ids = set(), set()
+    for league in leagues:
+        league_id = str(league["id"])
+        assert league_id and league_id not in league_ids, league
+        league_ids.add(league_id)
+        assert league["name"] and league["matches"], league
+        for match in league["matches"]:
+            match_id = str(match["id"])
+            assert match_id and match_id not in match_ids, match
+            match_ids.add(match_id)
+            assert str(match["leagueId"]) == league_id, (league, match)
+            assert match["home"] and match["away"], match
+        # Choosing a match in another league must retrieve that match, rather
+        # than keep a fixed demo scoreboard from the initial selection.
+        selected = league["matches"][0]
+        details = request("/api/query", {
+            "kind": "match", "id": str(selected["id"]), "date": "2026-10-07",
+            "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10,
+            "sections": ["scoreboard"],
+        })
+        assert details["source"] == "demo", details
+        scoreboard = details["modules"]["scoreboard"]
+        assert scoreboard["home"]["name"] == selected["home"], (selected, scoreboard)
+        assert scoreboard["away"]["name"] == selected["away"], (selected, scoreboard)
+    print("PASS date/league/match choices, league grouping and selected match details")
+
+    try:
+        request("/api/match-options", {
+            "date": "2026-02-30", "mode": "demo", "timezone": "Asia/Tokyo", "timeout": 10,
+        })
+    except urllib.error.HTTPError as error:
+        assert error.code == 422, error.code
+        detail = json.loads(error.read())
+        assert detail["error"]["code"] == "VALIDATION_ERROR", detail
+    else:
+        raise AssertionError("Invalid match-options dates must be rejected with HTTP 422")
+    print("PASS match-options calendar date validation")
+
     for kind in ("match", "date", "team", "league"):
         result = request("/api/query", {
             "kind": kind, "id": "5315746" if kind == "match" else "47",

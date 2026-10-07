@@ -1,5 +1,6 @@
 """Only normalize values that are present in the upstream response."""
 import re
+from collections import Counter
 from datetime import datetime, timezone as UTC
 from zoneinfo import ZoneInfo
 
@@ -57,16 +58,21 @@ def scores(status, home, away):
     return (int(match[1]), int(match[2])) if match else (obj(home).get("score"), obj(away).get("score"))
 
 
-def fixture(match, league, timezone):
+def fixture(match, league, timezone, league_id=None, league_country=None):
     match = obj(match)
     home, away, status = obj(match.get("home")), obj(match.get("away")), obj(match.get("status"))
     if not home.get("name") or not away.get("name"):
         return None
     home_score, away_score = scores(status, home, away)
-    return {"id": str(match.get("id", "")), "home": home["name"], "away": away["name"],
+    value = {"id": str(match.get("id", "")), "home": home["name"], "away": away["name"],
             "homeScore": home_score, "awayScore": away_score, "status": status_text(status),
             "kickoff": local_time(status.get("utcTime"), timezone),
             "league": obj(match.get("tournament")).get("name") or league}
+    if league_id is not None:
+        value["leagueId"] = str(league_id)
+    if league_country:
+        value["leagueCountry"] = league_country
+    return value
 
 
 def extract_fixtures(raw, kind, timezone):
@@ -76,7 +82,11 @@ def extract_fixtures(raw, kind, timezone):
             return None
         for league in raw["leagues"]:
             for match in items(obj(league).get("matches")):
-                value = fixture(match, obj(league).get("name"), timezone)
+                # id distinguishes tournament stages/groups. primaryId identifies
+                # their shared parent and must only be used if the group ID is absent.
+                league_id = obj(league).get("id") or obj(league).get("primaryId") or obj(match).get("leagueId")
+                league_country = obj(league).get("ccode") or obj(league).get("countryCode")
+                value = fixture(match, obj(league).get("name"), timezone, league_id, league_country)
                 if value:
                     fixtures.append(value)
         return fixtures
@@ -93,6 +103,37 @@ def extract_fixtures(raw, kind, timezone):
         if value:
             fixtures.append(value)
     return fixtures
+
+
+def match_options(data):
+    """Group only selectable, identified matches; never group by display name."""
+    groups = {}
+    skipped = 0
+    for match in data["modules"].get("fixtures", []):
+        league_id, match_id, name = match.get("leagueId"), match.get("id"), match.get("league")
+        if (not league_id or not name or not re.fullmatch(r"[0-9]{1,12}", str(league_id))
+                or not re.fullmatch(r"[0-9]{1,12}", str(match_id or ""))):
+            skipped += 1
+            continue
+        league_id = str(league_id)
+        if league_id not in groups:
+            groups[league_id] = {"id": league_id, "name": name, "matches": [], "_country": match.get("leagueCountry")}
+        groups[league_id]["matches"].append({**match, "id": str(match_id), "leagueId": league_id})
+    # Preserve the original fixture league labels while making same-name
+    # dropdown options distinguishable to a human, not just to the UI's keys.
+    name_counts = Counter(group["name"] for group in groups.values())
+    country_counts = Counter((group["name"], group["_country"]) for group in groups.values())
+    for group in groups.values():
+        name, country = group["name"], group.pop("_country")
+        if name_counts[name] > 1:
+            group["name"] = f"{name} · {country}" if country else name
+            if not country or country_counts[(name, country)] > 1:
+                group["name"] += f" · ID {group['id']}"
+    warnings = list(data["warnings"])
+    if skipped:
+        warnings.append(f"ID・リーグ名が取得できない {skipped} 試合は選択候補に含めていません。")
+    return {"source": data["source"], "fetchedAt": data["fetchedAt"],
+            "leagues": list(groups.values()), "warnings": warnings}
 
 
 def table_rows(node):

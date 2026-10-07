@@ -3,7 +3,6 @@ import { ArrowDownToLine, ArrowRight, Braces, CalendarDays, Check, ChevronDown, 
 import { api, Canvas, filteredData, INITIAL_QUERY, KINDS, makeScene, makeWidget, SECTION_NAMES, timeLabel } from './shared.jsx';
 
 const PRESETS = {
-  match: [{ id: '5315746', name: 'Chelsea vs Manchester City' }],
   team: [{ id: '8455', name: 'Chelsea' }, { id: '8456', name: 'Manchester City' }, { id: '9825', name: 'Arsenal' }, { id: '8650', name: 'Liverpool' }],
   league: [{ id: '47', name: 'Premier League' }, { id: '87', name: 'LaLiga' }, { id: '54', name: 'Bundesliga' }, { id: '55', name: 'Serie A' }, { id: '53', name: 'Ligue 1' }, { id: '42', name: 'Champions League' }],
 };
@@ -16,17 +15,24 @@ function widgetsForKind(kind, sections) {
   return sections.map(section => ({ ...makeWidget(section), ...overrides[section] }));
 }
 function queryKey(query) {
-  return JSON.stringify({ kind: query.kind, id: query.kind === 'date' ? '' : String(query.id ?? ''), date: query.kind === 'date' ? String(query.date ?? '') : '', mode: query.mode || 'live', timezone: query.timezone || 'Asia/Tokyo', timeout: Number(query.timeout ?? 15) });
+  return JSON.stringify({ kind: query.kind, id: query.kind === 'date' ? '' : String(query.id ?? ''), date: query.kind === 'date' ? String(query.date ?? '') : query.kind === 'match' ? String(query.date ?? INITIAL_QUERY.date) : '', mode: query.mode || 'live', timezone: query.timezone || 'Asia/Tokyo', timeout: Number(query.timeout ?? 15) });
 }
+function matchOptionsKey(query) { return JSON.stringify({ date: query.date || '', timezone: query.timezone || 'Asia/Tokyo', timeout: Number(query.timeout ?? 15), mode: query.mode || 'live' }); }
+function matchLabel(match, timezone) { const name = team => typeof team === 'object' ? team?.name || '—' : team || '—'; return `${name(match.home)} vs ${name(match.away)} · ${timeLabel(match.kickoff, timezone)} · ${match.status || '予定'}`; }
 
 export default function App() {
-  const [scene, setScene] = useState(makeScene), [form, setForm] = useState({ ...INITIAL_QUERY }), [data, setData] = useState(null), [scenes, setScenes] = useState([]), [selected, setSelected] = useState('scoreboard'), [tab, setTab] = useState('preview'), [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState(''), [toast, setToast] = useState(''), [advanced, setAdvanced] = useState(false), [showHelp, setShowHelp] = useState(false), [showScenes, setShowScenes] = useState(false), [deleteConfirm, setDeleteConfirm] = useState(null), [scale, setScale] = useState(0.5), [discoveredMatches, setDiscoveredMatches] = useState([]), [savedState, setSavedState] = useState('');
-  const previewRef = useRef(null), canvasRef = useRef(null), seq = useRef(0), requestRef = useRef(null), sceneRef = useRef(scene), dragRef = useRef(null), toastTimer = useRef(null), busyRef = useRef(false);
+  const [scene, setScene] = useState(makeScene), [form, setForm] = useState({ ...INITIAL_QUERY }), [data, setData] = useState(null), [scenes, setScenes] = useState([]), [selected, setSelected] = useState('scoreboard'), [tab, setTab] = useState('preview'), [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [error, setError] = useState(''), [toast, setToast] = useState(''), [advanced, setAdvanced] = useState(false), [showHelp, setShowHelp] = useState(false), [showScenes, setShowScenes] = useState(false), [deleteConfirm, setDeleteConfirm] = useState(null), [scale, setScale] = useState(0.5), [savedState, setSavedState] = useState('');
+  const [matchOptions, setMatchOptions] = useState({ key: '', status: 'loading', leagues: [], warnings: [], error: '' }), [leagueFilter, setLeagueFilter] = useState('all'), [matchSelection, setMatchSelection] = useState({ key: '', id: '' }), [manualMatch, setManualMatch] = useState(false), [listRetry, setListRetry] = useState(0);
+  const previewRef = useRef(null), canvasRef = useRef(null), seq = useRef(0), requestRef = useRef(null), sceneRef = useRef(scene), dragRef = useRef(null), toastTimer = useRef(null), busyRef = useRef(false), optionsSeq = useRef(0), restoreMatchRef = useRef({ key: matchOptionsKey(INITIAL_QUERY), id: INITIAL_QUERY.id, manualMissing: false });
   sceneRef.current = scene;
   const queryDirty = queryKey(form) !== queryKey(scene.query);
   const sceneDirty = Boolean(scene.id) && savedState !== JSON.stringify(scene);
-  const matchChoices = [...PRESETS.match, ...discoveredMatches.filter(match => !PRESETS.match.some(p => p.id === match.id))];
-  const targetChoices = form.kind === 'match' ? matchChoices : PRESETS[form.kind];
+  const targetChoices = PRESETS[form.kind] || [];
+  const currentOptionsKey = matchOptionsKey(form), optionsCurrent = matchOptions.key === currentOptionsKey && matchOptions.status === 'ready';
+  const availableLeagues = optionsCurrent ? matchOptions.leagues : [], availableMatches = availableLeagues.flatMap(league => league.matches || []);
+  const filteredMatches = leagueFilter === 'all' ? availableMatches : availableLeagues.find(league => league.id === leagueFilter)?.matches || [];
+  const listSelectionValid = optionsCurrent && matchSelection.key === currentOptionsKey && matchSelection.id === String(form.id || '') && filteredMatches.some(match => String(match.id) === matchSelection.id);
+  const matchFetchAllowed = manualMatch ? Boolean(form.id) : Boolean(form.date) && listSelectionValid;
   const widget = scene.widgets.find(w => w.id === selected);
   const safeData = filteredData(data, scene.sections);
   const obsUrl = scene.id ? `${location.origin}/overlay/${encodeURIComponent(scene.id)}` : '';
@@ -44,10 +50,6 @@ export default function App() {
       const result = await api('/api/query', { method: 'POST', body: JSON.stringify({ ...query, sections }), signal: controller.signal });
       if (nextSeq !== seq.current) return;
       setData(result); setScene(previous => ({ ...previous, query: { ...query }, sections, ...(nextWidgets ? { widgets: nextWidgets } : {}) }));
-      if (Array.isArray(result.modules?.fixtures)) setDiscoveredMatches(previous => {
-        const choices = result.modules.fixtures.filter(match => match.id).map(match => ({ id: String(match.id), name: `${typeof match.home === 'object' ? match.home.name : match.home} vs ${typeof match.away === 'object' ? match.away.name : match.away} · ${timeLabel(match.kickoff, query.timezone)}` }));
-        return [...previous.filter(match => !choices.some(next => next.id === match.id)), ...choices];
-      });
     } catch (failure) { if (nextSeq === seq.current && failure.name !== 'AbortError') setError(failure.message); }
     finally { if (nextSeq === seq.current) { busyRef.current = false; setLoading(false); } }
   }
@@ -56,6 +58,33 @@ export default function App() {
     api('/api/scenes').then(value => setScenes(Array.isArray(value) ? value : value.scenes || [])).catch(() => {});
     return () => { requestRef.current?.abort(); clearTimeout(toastTimer.current); };
   }, []);
+  useEffect(() => {
+    if (form.kind !== 'match') return;
+    const key = matchOptionsKey(form), requestSequence = ++optionsSeq.current;
+    const controller = new AbortController(); let active = true;
+    setLeagueFilter('all'); setMatchSelection({ key, id: '' });
+    if (!form.date) {
+      setMatchOptions({ key, status: 'emptyDate', leagues: [], warnings: [], error: '' });
+      return () => { active = false; controller.abort(); };
+    }
+    setMatchOptions({ key, status: 'loading', leagues: [], warnings: [], error: '' });
+    api('/api/match-options', { method: 'POST', body: key, signal: controller.signal }).then(result => {
+      if (!active || requestSequence !== optionsSeq.current) return;
+      const leagues = (result.leagues || []).map(league => ({ ...league, id: String(league.id), matches: (league.matches || []).map(match => ({ ...match, id: String(match.id) })) }));
+      setMatchOptions({ key, status: 'ready', leagues, warnings: result.warnings || [], error: '', source: result.source, fetchedAt: result.fetchedAt });
+      const restore = restoreMatchRef.current;
+      if (restore?.key === key) {
+        const found = leagues.some(league => league.matches.some(match => match.id === String(restore.id)));
+        if (found) { setMatchSelection({ key, id: String(restore.id) }); setManualMatch(false); setForm(previous => previous.kind === 'match' && matchOptionsKey(previous) === key ? { ...previous, id: String(restore.id) } : previous); }
+        else if (restore.manualMissing) { setManualMatch(true); setAdvanced(true); }
+        else { setForm(previous => previous.kind === 'match' && matchOptionsKey(previous) === key ? { ...previous, id: '' } : previous); }
+        restoreMatchRef.current = null;
+      }
+    }).catch(failure => {
+      if (active && requestSequence === optionsSeq.current && failure.name !== 'AbortError') setMatchOptions({ key, status: 'error', leagues: [], warnings: [], error: failure.message });
+    });
+    return () => { active = false; controller.abort(); };
+  }, [form.kind, form.date, form.timezone, form.timeout, form.mode, listRetry]);
   useEffect(() => {
     if (!data) return;
     const timer = setInterval(() => { if (document.visibilityState === 'visible' && !dragRef.current && !busyRef.current) fetchData(sceneRef.current.query, sceneRef.current.sections, true); }, Math.max(30, scene.pollInterval) * 1000);
@@ -79,10 +108,16 @@ export default function App() {
   }, []);
 
   function editQuery(key, value) {
-    setForm(previous => ({ ...previous, [key]: value }));
+    if (form.kind === 'match' && ['date', 'mode', 'timezone', 'timeout'].includes(key)) {
+      restoreMatchRef.current = null; setMatchSelection({ key: '', id: '' });
+      setForm(previous => ({ ...previous, [key]: value, ...(!manualMatch ? { id: '' } : {}) }));
+    } else setForm(previous => ({ ...previous, [key]: value }));
   }
   function changeKind(kind) {
-    setForm(previous => ({ ...previous, kind, id: kind === 'team' ? '8455' : kind === 'league' ? '47' : '5315746' }));
+    if (kind === form.kind) return;
+    restoreMatchRef.current = null; setManualMatch(false); setMatchSelection({ key: '', id: '' });
+    if (kind === 'match') setMatchOptions({ key: '', status: 'loading', leagues: [], warnings: [], error: '' });
+    setForm(previous => ({ ...previous, kind, date: previous.date || INITIAL_QUERY.date, id: kind === 'team' ? '8455' : kind === 'league' ? '47' : '' }));
   }
   function toggleSection(section) {
     const next = scene.sections.includes(section) ? scene.sections.filter(s => s !== section) : [...scene.sections, section];
@@ -92,15 +127,48 @@ export default function App() {
     if (data && (busyRef.current || (!data.modules?.[section] && next.includes(section)))) fetchData(scene.query, next);
   }
   function runQuery() {
+    if (form.kind === 'match' && !matchFetchAllowed) return;
     const changed = form.kind !== scene.query.kind;
     const sections = changed ? KINDS[form.kind].sections.filter(s => form.kind !== 'team' || s !== 'standings') : scene.sections;
     setSelected(sections[0]);
-    fetchData(form, sections, false, changed ? widgetsForKind(form.kind, sections) : null);
+    fetchData({ ...form, id: form.kind === 'date' ? null : form.id, date: form.date || null }, sections, false, changed ? widgetsForKind(form.kind, sections) : null);
+  }
+  function restoreMatchPicker(query) {
+    const restored = { ...query, date: query.date || INITIAL_QUERY.date };
+    if (query.kind === 'match') {
+      const key = matchOptionsKey(restored), found = matchOptions.key === key && matchOptions.status === 'ready' && matchOptions.leagues.some(league => league.matches.some(match => String(match.id) === String(query.id)));
+      setLeagueFilter('all'); setMatchSelection({ key, id: found ? String(query.id) : '' }); setManualMatch(!found);
+      restoreMatchRef.current = found ? null : { key, id: String(query.id), manualMissing: true };
+      if (!found && matchOptions.key === key && matchOptions.status === 'ready') setAdvanced(true);
+    } else { restoreMatchRef.current = null; setManualMatch(false); }
+    setForm(restored);
+    return restored;
+  }
+  function selectLeague(id) {
+    setLeagueFilter(id);
+    const matches = id === 'all' ? availableMatches : availableLeagues.find(league => league.id === id)?.matches || [];
+    if (!manualMatch && !matches.some(match => String(match.id) === matchSelection.id)) { setMatchSelection({ key: currentOptionsKey, id: '' }); setForm(previous => ({ ...previous, id: '' })); }
+  }
+  function selectMatch(id) {
+    const match = filteredMatches.find(candidate => String(candidate.id) === String(id));
+    if (!match || !optionsCurrent) return;
+    restoreMatchRef.current = null; setManualMatch(false); setMatchSelection({ key: currentOptionsKey, id: String(match.id) });
+    const query = { ...form, kind: 'match', id: String(match.id) }, changed = scene.query.kind !== 'match', sections = changed ? KINDS.match.sections : scene.sections;
+    setForm(query); if (changed) setSelected(sections[0]);
+    fetchData(query, sections, false, changed ? widgetsForKind('match', sections) : null);
+  }
+  function toggleManualMatch(enabled) {
+    restoreMatchRef.current = null; setManualMatch(enabled);
+    if (!enabled) { setMatchSelection({ key: currentOptionsKey, id: '' }); setForm(previous => ({ ...previous, id: '' })); }
+  }
+  function retryMatchOptions() {
+    if (!manualMatch && form.id) restoreMatchRef.current = { key: currentOptionsKey, id: String(form.id), manualMissing: false };
+    setListRetry(previous => previous + 1);
   }
   function openMatch(id) {
     if (!id) return;
-    const query = { ...scene.query, kind: 'match', id: String(id) }, sections = KINDS.match.sections;
-    setForm(query); setSelected('scoreboard'); fetchData(query, sections, false, widgetsForKind('match', sections));
+    const query = { ...scene.query, kind: 'match', id: String(id), date: scene.query.date || INITIAL_QUERY.date }, changed = scene.query.kind !== 'match', sections = changed ? KINDS.match.sections : scene.sections;
+    restoreMatchPicker(query); if (changed) setSelected(sections[0]); fetchData(query, sections, false, changed ? widgetsForKind('match', sections) : null);
   }
   function updateWidget(key, value) {
     setScene(previous => ({ ...previous, widgets: previous.widgets.map(w => {
@@ -130,16 +198,16 @@ export default function App() {
     notify('レイアウトを適用しました');
   }
   async function saveScene() {
-    if (queryDirty || !data || loading || !scene.name.trim()) return;
+    if (queryDirty || !data || loading || !scene.name.trim() || (form.kind === 'match' && !matchFetchAllowed)) return;
     setSaving(true);
     try {
       const saved = await api(scene.id ? `/api/scenes/${scene.id}` : '/api/scenes', { method: scene.id ? 'PUT' : 'POST', body: JSON.stringify(scene) });
-      setScene(saved); setForm({ ...saved.query }); setSavedState(JSON.stringify(saved)); setScenes(previous => [...previous.filter(s => s.id !== saved.id), saved]); notify('シーンを保存しました。OBS で使用できます');
+      setScene(saved); setForm(previous => ({ ...saved.query, date: saved.query.date || previous.date || INITIAL_QUERY.date })); setSavedState(JSON.stringify(saved)); setScenes(previous => [...previous.filter(s => s.id !== saved.id), saved]); notify('シーンを保存しました。OBS で使用できます');
     } catch (failure) { setError(failure.message); }
     finally { setSaving(false); }
   }
   async function loadScene(id) {
-    try { const saved = await api(`/api/scenes/${id}`); setData(null); setScene(saved); setForm({ ...saved.query }); setSavedState(JSON.stringify(saved)); setSelected(saved.sections[0] || ''); setShowScenes(false); await fetchData(saved.query, saved.sections); notify('シーンを読み込みました'); }
+    try { const saved = await api(`/api/scenes/${id}`); setData(null); setScene(saved); restoreMatchPicker(saved.query); setSavedState(JSON.stringify(saved)); setSelected(saved.sections[0] || ''); setShowScenes(false); await fetchData(saved.query, saved.sections); notify('シーンを読み込みました'); }
     catch (failure) { setError(failure.message); }
   }
   async function deleteScene(id) {
@@ -150,24 +218,32 @@ export default function App() {
     try { await navigator.clipboard.writeText(obsUrl); notify('OBS ブラウザソースの URL をコピーしました'); }
     catch { notify('コピーできませんでした。下の URL を選択してコピーしてください'); }
   }
-  function newScene() { const fresh = makeScene(); setData(null); setScene(fresh); setForm({ ...fresh.query }); setSelected('scoreboard'); setShowScenes(false); fetchData(fresh.query, fresh.sections); }
+  function newScene() { const fresh = makeScene(); setData(null); setScene(fresh); restoreMatchPicker(fresh.query); setSelected('scoreboard'); setShowScenes(false); fetchData(fresh.query, fresh.sections); }
 
   return <div className="studio-app">
     <header className="topbar"><a className="brand" href="/" aria-label="FOT STUDIO"><span className="brand-mark"><Film size={19} /></span><b>FOT<span>/</span>STUDIO</b></a><div className="topbar-divider" /><span className="topbar-label">WATCH ALONG CREATOR</span><nav><button className="active" onClick={() => { setShowScenes(false); setShowHelp(false); }}>スタジオ</button><button onClick={() => setShowScenes(true)}>マイシーン<span>{scenes.length.toString().padStart(2, '0')}</span></button><button onClick={() => setShowHelp(true)}>使い方<ExternalLink size={12} /></button></nav><div className="topbar-right"><span className="ready-dot" />LOCAL WORKSPACE<Monitor size={16} /></div></header>
 
-    <div className="page-intro"><div><div className="eyebrow"><span />YOUR MATCH. YOUR BROADCAST.</div><h1>観る熱量を、<span>配信のカタチに。</span></h1><p>試合データを選んで、あなただけの同時視聴オーバーレイを。</p></div><div className="intro-actions"><button className="button subtle" onClick={() => setShowScenes(true)}><Layers3 size={16} />シーン一覧</button><button className="button primary" onClick={saveScene} disabled={saving || queryDirty || !data || loading || !scene.name.trim()} title={queryDirty ? '変更した条件でデータを取得してから保存してください' : ''}>{saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}{sceneDirty ? '変更を保存' : 'シーンを保存'}</button></div></div>
+    <div className="page-intro"><div><div className="eyebrow"><span />YOUR MATCH. YOUR BROADCAST.</div><h1>観る熱量を、<span>配信のカタチに。</span></h1><p>試合データを選んで、あなただけの同時視聴オーバーレイを。</p></div><div className="intro-actions"><button className="button subtle" onClick={() => setShowScenes(true)}><Layers3 size={16} />シーン一覧</button><button className="button primary" onClick={saveScene} disabled={saving || queryDirty || !data || loading || !scene.name.trim() || (form.kind === 'match' && !matchFetchAllowed)} title={queryDirty ? '変更した条件でデータを取得してから保存してください' : ''}>{saving ? <LoaderCircle size={16} className="spin" /> : <Save size={16} />}{sceneDirty ? '変更を保存' : 'シーンを保存'}</button></div></div>
 
     <main className="workspace">
       <aside className="source-panel panel"><div className="panel-heading"><span><Radio size={16} />データソース</span><span className={`source-badge ${form.mode === 'live' ? 'live' : ''}`}>{form.mode === 'demo' ? 'DEMO' : 'LIVE'}</span></div><div className="source-content">
         <SmallLabel>取得モード</SmallLabel><div className="mode-switch"><button className={form.mode === 'demo' ? 'active' : ''} onClick={() => editQuery('mode', 'demo')}>デモデータ</button><button className={form.mode === 'live' ? 'active' : ''} onClick={() => editQuery('mode', 'live')}><span className="mini-dot" />実データ</button></div>
         <div className={`mode-note ${form.mode === 'live' ? 'live-note' : ''}`}>{form.mode === 'demo' ? 'レイアウト作成用のサンプルデータ' : 'FotMob から最新データを取得'}</div>
         <SmallLabel>データの種類</SmallLabel><div className="kind-tabs">{Object.entries(KINDS).map(([kind, options]) => <button key={kind} className={form.kind === kind ? 'active' : ''} onClick={() => changeKind(kind)}>{kind === 'match' ? <Shield /> : kind === 'date' ? <CalendarDays /> : kind === 'team' ? <Layers3 /> : <Trophy />}<span>{options.label}</span></button>)}</div>
-        {form.kind !== 'date' && <><SmallLabel>{form.kind === 'match' ? '試合を選択' : form.kind === 'team' ? 'チームを選択' : 'リーグを選択'}</SmallLabel><Select value={targetChoices.some(p => p.id === form.id) ? form.id : 'custom'} onChange={e => { if (e.target.value !== 'custom') editQuery('id', e.target.value); else editQuery('id', ''); }}>{targetChoices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}<option value="custom">ID を指定…</option></Select><label className="id-field"><span>FotMob ID</span><input aria-label="FotMob ID" placeholder="例：5315746" inputMode="numeric" value={form.id} onChange={e => editQuery('id', e.target.value.replace(/[^0-9]/g, ''))} /></label></>}
+        {form.kind === 'match' && <div className="match-selector">
+          <SmallLabel extra="STEP 01">試合の日付</SmallLabel><input className="date-input" type="date" aria-label="試合選択の日付" value={form.date || ''} onChange={e => editQuery('date', e.target.value)} />
+          <SmallLabel extra="STEP 02">リーグで絞り込み</SmallLabel><Select aria-label="試合選択のリーグ" disabled={!optionsCurrent || manualMatch || !availableLeagues.length} value={leagueFilter} onChange={e => selectLeague(e.target.value)}><option value="all">すべてのリーグ{optionsCurrent ? `（${availableMatches.length} 試合）` : ''}</option>{availableLeagues.map(league => <option key={league.id} value={league.id}>{league.name}（{league.matches.length} 試合）</option>)}</Select>
+          <SmallLabel extra="STEP 03">試合を選択</SmallLabel><Select aria-label="当日の試合を選択" disabled={!optionsCurrent || manualMatch || !filteredMatches.length} value={!manualMatch && listSelectionValid ? matchSelection.id : ''} onChange={e => selectMatch(e.target.value)}><option value="">{!form.date ? '日付を選んでください' : !optionsCurrent ? (matchOptions.key === currentOptionsKey && matchOptions.status === 'error' ? '一覧の取得に失敗しました' : '試合一覧を準備中…') : filteredMatches.length ? '試合を選ぶと詳細を取得' : '選択できる試合がありません'}</option>{filteredMatches.map((match, i) => <option key={`${match.id}-${i}`} value={match.id}>{matchLabel(match, form.timezone)}</option>)}</Select>
+          {matchOptions.key !== currentOptionsKey || matchOptions.status === 'loading' ? <div className="match-list-status loading-status" role="status"><LoaderCircle className="spin" size={13} /><span>当日の試合一覧を取得中…</span></div> : matchOptions.status === 'emptyDate' ? <div className="match-list-status"><CalendarDays size={13} /><span>日付を選ぶと試合一覧を取得します。</span></div> : matchOptions.status === 'error' ? <div className="match-list-error" role="alert"><span>試合一覧を取得できません：{matchOptions.error}</span><button aria-label="試合一覧を再取得" onClick={retryMatchOptions}><RefreshCw size={12} />再試行</button></div> : !availableMatches.length ? <div className="match-list-status"><CalendarDays size={13} /><span>この日には試合がありません。別の日付を選んでください。</span></div> : !filteredMatches.length ? <div className="match-list-status"><Trophy size={13} /><span>このリーグには当日の試合がありません。</span></div> : <div className="match-list-status list-ready"><Check size={12} /><span>{matchOptions.source === 'demo' ? 'DEMO' : 'FOTMOB'} · {filteredMatches.length} 試合{!manualMatch && listSelectionValid ? ' · 選択済み' : ' · 選ぶと自動で詳細取得'}</span></div>}
+          {optionsCurrent && matchOptions.warnings.length > 0 && <div className="match-list-warnings">{matchOptions.warnings.map((warning, i) => <p key={i}>{typeof warning === 'string' ? warning : warning.message || JSON.stringify(warning)}</p>)}</div>}
+          {manualMatch && <div className="manual-match-note">詳細設定の試合 ID を使用中</div>}
+        </div>}
+        {(form.kind === 'team' || form.kind === 'league') && <><SmallLabel>{form.kind === 'team' ? 'チームを選択' : 'リーグを選択'}</SmallLabel><Select aria-label={form.kind === 'team' ? 'チームを選択' : 'リーグを選択'} value={targetChoices.some(p => p.id === form.id) ? form.id : 'custom'} onChange={e => { if (e.target.value !== 'custom') editQuery('id', e.target.value); else editQuery('id', ''); }}>{targetChoices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}<option value="custom">ID を指定…</option></Select><label className="id-field"><span>FotMob ID</span><input aria-label="FotMob ID" placeholder="例：8455" inputMode="numeric" value={form.id || ''} onChange={e => editQuery('id', e.target.value.replace(/[^0-9]/g, ''))} /></label></>}
         {form.kind === 'date' && <><SmallLabel>試合の日付</SmallLabel><input className="date-input" type="date" aria-label="試合の日付" value={form.date} onChange={e => editQuery('date', e.target.value)} /></>}
-        <button className="advanced-toggle" onClick={() => setAdvanced(!advanced)}><Settings2 size={14} />タイムゾーン・タイムアウト<ChevronDown size={14} className={advanced ? 'rotate' : ''} /></button>
-        {advanced && <div className="advanced-fields"><SmallLabel>タイムゾーン</SmallLabel><Select value={form.timezone} onChange={e => editQuery('timezone', e.target.value)}><option value="Asia/Tokyo">日本（Asia/Tokyo）</option><option value="Europe/London">英国（Europe/London）</option><option value="Europe/Paris">欧州（Europe/Paris）</option><option value="America/New_York">米国（New York）</option><option value="UTC">UTC</option></Select><NumberField label="タイムアウト" value={form.timeout} min={5} max={60} suffix="秒" onChange={value => editQuery('timeout', value)} /></div>}
-        <button className="button primary fetch-button" disabled={loading || (form.kind !== 'date' && !form.id) || (form.kind === 'date' && !form.date)} onClick={runQuery}>{loading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{loading ? 'データ取得中…' : 'データを取得'}<ArrowRight size={15} /></button>
-        {queryDirty && <div className="pending-note">条件を変更しました。取得して反映</div>}
+        <button className="advanced-toggle" aria-expanded={advanced} onClick={() => setAdvanced(!advanced)}><Settings2 size={14} />詳細設定<ChevronDown size={14} className={advanced ? 'rotate' : ''} /></button>
+        {advanced && <div className="advanced-fields"><SmallLabel>タイムゾーン</SmallLabel><Select aria-label="データ取得のタイムゾーン" value={form.timezone} onChange={e => editQuery('timezone', e.target.value)}><option value="Asia/Tokyo">日本（Asia/Tokyo）</option><option value="Europe/London">英国（Europe/London）</option><option value="Europe/Paris">欧州（Europe/Paris）</option><option value="America/New_York">米国（New York）</option><option value="UTC">UTC</option></Select><NumberField label="タイムアウト" value={form.timeout} min={5} max={60} suffix="秒" onChange={value => editQuery('timeout', value)} />{form.kind === 'match' && <div className="manual-match-settings"><label className="manual-match-toggle"><input type="checkbox" aria-label="試合 ID を直接指定" checked={manualMatch} onChange={e => toggleManualMatch(e.target.checked)} /><span>試合 ID を直接指定する</span></label>{manualMatch && <label className="id-field"><span>FotMob 試合 ID</span><input aria-label="詳細設定の試合 ID" maxLength={12} placeholder="例：5315746" inputMode="numeric" value={form.id || ''} onChange={e => { restoreMatchRef.current = null; editQuery('id', e.target.value.replace(/[^0-9]/g, '')); }} /></label>}<p>通常は日付・リーグ・試合の選択で取得できます。</p></div>}</div>}
+        <button className="button primary fetch-button" disabled={loading || (form.kind === 'match' && !matchFetchAllowed) || ((form.kind === 'team' || form.kind === 'league') && !form.id) || (form.kind === 'date' && !form.date)} onClick={runQuery}>{loading ? <LoaderCircle className="spin" size={16} /> : <RefreshCw size={16} />}{loading ? 'データ取得中…' : form.kind === 'match' && !manualMatch ? '選択した試合を再取得' : 'データを取得'}<ArrowRight size={15} /></button>
+        {queryDirty && <div className="pending-note">{form.kind === 'match' && !manualMatch ? '条件を変更しました。試合を選択して反映' : '条件を変更しました。取得して反映'}</div>}
         {scene.query.kind !== 'match' && Array.isArray(data?.modules?.fixtures) && data.modules.fixtures.some(match => match.id) && <div className="fixture-picker"><SmallLabel>取得した日程から試合詳細へ</SmallLabel><Select aria-label="取得した日程から試合を選ぶ" value="" onChange={e => openMatch(e.target.value)}><option value="">試合を選んで取得…</option>{data.modules.fixtures.filter(match => match.id).map((match, i) => <option key={`${match.id}-${i}`} value={match.id}>{typeof match.home === 'object' ? match.home.name : match.home} vs {typeof match.away === 'object' ? match.away.name : match.away}</option>)}</Select></div>}
         <div className="panel-section-header"><span>表示する情報</span><small>{scene.sections.length} SELECTED</small></div>
         <div className="section-toggles">{KINDS[scene.query.kind].sections.map(section => <label key={section} className={scene.sections.includes(section) ? 'checked' : ''}><input type="checkbox" disabled={loading && !data} checked={scene.sections.includes(section)} onChange={() => toggleSection(section)} /><span className="custom-checkbox">{scene.sections.includes(section) && <Check size={12} />}</span><span>{SECTION_NAMES[section]}</span></label>)}</div>
@@ -193,7 +269,7 @@ export default function App() {
     </main>
     <footer className="site-footer"><span>FOT / STUDIO</span><p>MADE FOR THE LOVE OF THE GAME.</p><span>v1.0 · LOCAL FIRST</span></footer>
     {toast && <div className="toast" role="status"><Check size={17} />{toast}</div>}
-    {showHelp && <div className="modal-backdrop" onClick={() => setShowHelp(false)}><section className="modal help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowHelp(false)}><X size={20} /></button><div className="eyebrow">GO LIVE IN 3 STEPS</div><h2 id="help-title">配信に、あなたのスタイルを。</h2><div className="help-steps"><div><b>01</b><span><strong>データとパーツを選ぶ</strong><p>デモでレイアウトを作成。実データに切り替えたら「データを取得」で内容を確認します。</p></span></div><div><b>02</b><span><strong>配置して、シーンを保存</strong><p>プレビューをドラッグ、または X・Y・幅・高さを指定して調整します。最後に「シーンを保存」。</p></span></div><div><b>03</b><span><strong>OBS にブラウザソースを追加</strong><p>URL を貼り付け、幅 <em>1920</em>・高さ <em>1080</em> に設定。背景は透過にできます。起動した PC と同じ PC の OBS で localhost の URL を使用してください。</p></span></div></div><div className="help-callout"><Braces size={20} /><p>ZIP は保存時点の固定データです（自動更新なし）。<br />JSON を保存して、他のツールでも利用できます。</p></div><button className="button primary" onClick={() => setShowHelp(false)}>スタジオへ戻る<ArrowRight size={16} /></button></section></div>}
+    {showHelp && <div className="modal-backdrop" onClick={() => setShowHelp(false)}><section className="modal help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowHelp(false)}><X size={20} /></button><div className="eyebrow">GO LIVE IN 3 STEPS</div><h2 id="help-title">配信に、あなたのスタイルを。</h2><div className="help-steps"><div><b>01</b><span><strong>データとパーツを選ぶ</strong><p>試合タブで日付を選ぶと、当日の試合一覧を自動取得します。リーグで絞り込んで試合を選ぶと、そのまま詳細データを表示。デモ・実データは取得モードで切り替えます。</p></span></div><div><b>02</b><span><strong>配置して、シーンを保存</strong><p>プレビューをドラッグ、または X・Y・幅・高さを指定して調整します。最後に「シーンを保存」。</p></span></div><div><b>03</b><span><strong>OBS にブラウザソースを追加</strong><p>URL を貼り付け、幅 <em>1920</em>・高さ <em>1080</em> に設定。背景は透過にできます。起動した PC と同じ PC の OBS で localhost の URL を使用してください。</p></span></div></div><div className="help-callout"><Braces size={20} /><p>ZIP は保存時点の固定データです（自動更新なし）。<br />JSON を保存して、他のツールでも利用できます。</p></div><button className="button primary" onClick={() => setShowHelp(false)}>スタジオへ戻る<ArrowRight size={16} /></button></section></div>}
     {showScenes && <div className="modal-backdrop" onClick={() => setShowScenes(false)}><section className="modal scenes-modal" role="dialog" aria-modal="true" aria-labelledby="scenes-title" onClick={e => e.stopPropagation()}><button className="modal-close" aria-label="閉じる" onClick={() => setShowScenes(false)}><X size={20} /></button><div className="eyebrow">YOUR COLLECTION</div><h2 id="scenes-title">マイシーン</h2><p className="modal-description">試合や配信スタイルに合わせて、レイアウトを使い分ける。</p><button className="button primary" onClick={newScene}><Plus size={16} />新しいシーンを作成</button><div className="scene-list">{scenes.length ? scenes.map(saved => <div key={saved.id} className="saved-scene"><div className="saved-scene-art"><Grid2X2 size={26} /></div><div><strong>{saved.name}</strong><span>{saved.query?.mode === 'demo' ? 'DEMO' : 'LIVE'} · {saved.sections?.length || 0} パーツ · {saved.pollInterval || 30} 秒更新</span></div><button className="button subtle" onClick={() => loadScene(saved.id)}>開く<ArrowRight size={14} /></button><button className="delete-button" title="シーンを削除" aria-label={`${saved.name}を削除`} onClick={() => setDeleteConfirm(saved.id)}><Trash2 size={16} /></button>{deleteConfirm === saved.id && <div className="delete-confirm"><span>このシーンを削除しますか？ OBS の URL も無効になります。</span><button onClick={() => setDeleteConfirm(null)}>キャンセル</button><button onClick={() => deleteScene(saved.id)}>削除する</button></div>}</div>) : <div className="scene-empty"><Layers3 size={32} /><strong>最初のシーンを作りましょう</strong><p>スタジオでシーンを保存すると、ここに表示されます。</p></div>}</div></section></div>}
   </div>;
 }

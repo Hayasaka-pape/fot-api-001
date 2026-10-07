@@ -57,6 +57,27 @@ class Query(StrictModel):
         return self
 
 
+class MatchOptionsInput(StrictModel):
+    date: str
+    timezone: str = Field(default_factory=lambda: os.getenv("TIMEZONE", "Asia/Tokyo"))
+    timeout: float = Field(default=15, ge=1, le=60)
+    mode: Literal["demo", "live"] = "live"
+
+    @field_validator("date")
+    @classmethod
+    def valid_date(cls, value):
+        return Query.valid_date(value)
+
+    @field_validator("timezone")
+    @classmethod
+    def valid_timezone(cls, value):
+        return Query.valid_timezone(value)
+
+    def to_query(self):
+        return Query(kind="date", date=self.date, timezone=self.timezone,
+                     timeout=self.timeout, mode=self.mode, sections=["fixtures"])
+
+
 def css_color(value):
     # Deliberately small, portable set; no CSS expressions or URLs.
     if not re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})|(?:rgb|rgba)\([0-9.,%\s]+\)|transparent|black|white", value):

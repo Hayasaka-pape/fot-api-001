@@ -11,8 +11,8 @@ from .client import FotmobClient
 from .demo import demo_response
 from .errors import FotmobError, InvalidResponseError
 from .export import make_export
-from .models import Query, SceneInput
-from .normalizers import normalize
+from .models import MatchOptionsInput, Query, SceneInput
+from .normalizers import match_options, normalize
 from .store import SceneStore
 
 
@@ -71,6 +71,14 @@ def create_app(*, data_dir=None, client=None, frontend_dist=None):
     @app.post("/api/query")
     async def query(query: Query):
         return await query_data(query)
+
+    @app.post("/api/match-options")
+    async def get_match_options(options: MatchOptionsInput):
+        data = await query_data(options.to_query())
+        try:
+            return match_options(data)
+        except (TypeError, AttributeError, KeyError, ValueError):
+            raise InvalidResponseError("FotMob の試合選択候補の構造が変更されています。時間をおいて再取得してください")
 
     @app.get("/api/scenes")
     async def list_scenes():
