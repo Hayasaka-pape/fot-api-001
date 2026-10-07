@@ -1,0 +1,137 @@
+{
+  "date": "20260516",
+  "leagues": [
+    {
+      "name": "Bundesliga",
+      "id": 54,
+      "matches": [
+        {
+          "id": 4829612,
+          "leagueId": 54,
+          "time": "16.05.2026 15:30",
+          "home": {
+            "id": 8178,
+            "score": 1,
+            "name": "Leverkusen",
+            "longName": "Bayer Leverkusen"
+          },
+          "away": {
+            "id": 9790,
+            "score": 1,
+            "name": "Hamburger SV",
+            "longName": "Hamburger SV"
+          },
+          "eliminatedTeamId": null,
+          "statusId": 6,
+          "tournamentStage": "34",
+          "status": {
+            "utcTime": "2026-05-16T13:30:00.000Z",
+            "halfs": {
+              "firstHalfStarted": "16.05.2026 15:30:55",
+              "secondHalfStarted": "16.05.2026 16:34:14"
+            },
+            "periodLength": 45,
+            "finished": true,
+            "started": true,
+            "cancelled": false,
+            "awarded": false,
+            "scoreStr": "1 - 1",
+            "reason": {
+              "short": "FT",
+              "shortKey": "fulltime_short",
+              "long": "Full-Time",
+              "longKey": "finished"
+            }
+          },
+          "timeTS": 1778938200000
+        },
+        {
+          "id": 4829613,
+          "leagueId": 54,
+          "time": "16.05.2026 15:30",
+          "home": {
+            "id": 9823,
+            "score": 5,
+            "name": "Bayern München",
+            "longName": "Bayern München"
+          },
+          "away": {
+            "id": 8722,
+            "score": 1,
+            "name": "Köln",
+            "longName": "1. FC Köln"
+          },
+          "eliminatedTeamId": null,
+          "statusId": 6,
+          "tournamentStage": "34",
+          "status": {
+            "utcTime": "2026-05-16T13:30:00.000Z",
+            "halfs": {
+              "firstHalfStarted": "16.05.2026 15:32:58",
+              "secondHalfStarted": "16.05.2026 16:38:59"
+            },
+            "periodLength": 45,
+            "finished": true,
+            "started": true,
+            "cancelled": false,
+            "awarded": false,
+            "scoreStr": "5 - 1",
+            "reason": {
+              "short": "FT",
+              "shortKey": "fulltime_short",
+              "long": "Full-Time",
+              "longKey": "finished"
+            }
+          },
+          "timeTS": 1778938200000
+        }
+      ]
+    },
+    {
+      "name": "FA Cup",
+      "id": 908818,
+      "matches": [
+        {
+          "id": 5315746,
+          "leagueId": 908818,
+          "time": "16.05.2026 16:00",
+          "home": {
+            "id": 8455,
+            "score": 0,
+            "name": "Chelsea",
+            "longName": "Chelsea"
+          },
+          "away": {
+            "id": 8456,
+            "score": 1,
+            "name": "Man City",
+            "longName": "Manchester City"
+          },
+          "eliminatedTeamId": null,
+          "statusId": 6,
+          "tournamentStage": "final",
+          "status": {
+            "utcTime": "2026-05-16T14:00:00.000Z",
+            "halfs": {
+              "firstHalfStarted": "16.05.2026 16:01:46",
+              "secondHalfStarted": "16.05.2026 17:05:39"
+            },
+            "periodLength": 45,
+            "finished": true,
+            "started": true,
+            "cancelled": false,
+            "awarded": false,
+            "scoreStr": "0 - 1",
+            "reason": {
+              "short": "FT",
+              "shortKey": "fulltime_short",
+              "long": "Full-Time",
+              "longKey": "finished"
+            }
+          },
+          "timeTS": 1778940000000
+        }
+      ]
+    }
+  ]
+}

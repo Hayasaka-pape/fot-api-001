@@ -1,0 +1,384 @@
+{
+  "details": {
+    "id": 47,
+    "name": "Premier League",
+    "country": "ENG",
+    "selectedSeason": "2026/2027",
+    "latestSeason": "2026/2027"
+  },
+  "table": [
+    {
+      "data": {
+        "table": {
+          "all": [
+            {
+              "name": "Manchester City",
+              "shortName": "Man City",
+              "id": 8456,
+              "pageUrl": "/teams/8456/overview/manchester-city",
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 5,
+              "draws": 0,
+              "losses": 0,
+              "scoresStr": "13-5",
+              "goalConDiff": 8,
+              "pts": 15,
+              "idx": 1,
+              "qualColor": "#2AD572"
+            },
+            {
+              "name": "Arsenal",
+              "shortName": "Arsenal",
+              "id": 9825,
+              "pageUrl": "/teams/9825/overview/arsenal",
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 4,
+              "draws": 0,
+              "losses": 1,
+              "scoresStr": "8-4",
+              "goalConDiff": 4,
+              "pts": 12,
+              "idx": 2,
+              "qualColor": "#2AD572"
+            },
+            {
+              "name": "Brighton & Hove Albion",
+              "shortName": "Brighton",
+              "id": 10204,
+              "pageUrl": "/teams/10204/overview/brighton-hove-albion",
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 3,
+              "draws": 1,
+              "losses": 1,
+              "scoresStr": "16-5",
+              "goalConDiff": 11,
+              "pts": 10,
+              "idx": 3,
+              "qualColor": "#2AD572"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "stats": {
+    "teams": [
+      {
+        "header": "FotMob rating",
+        "participant": {
+          "id": 0,
+          "name": "Manchester City",
+          "rank": 1,
+          "ccode": "ENG",
+          "teamId": 8456,
+          "value": 7.41,
+          "stat": {
+            "name": "rating_team",
+            "value": 7.41,
+            "format": "fraction",
+            "fractions": 2
+          }
+        },
+        "topThree": [
+          {
+            "id": 0,
+            "name": "Manchester City",
+            "rank": 1,
+            "ccode": "ENG",
+            "teamId": 8456,
+            "value": 7.41,
+            "stat": {
+              "name": "rating_team",
+              "value": 7.41,
+              "format": "fraction",
+              "fractions": 2
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 0,
+            "name": "Brighton & Hove Albion",
+            "rank": 2,
+            "ccode": "ENG",
+            "teamId": 10204,
+            "value": 7.16,
+            "stat": {
+              "name": "rating_team",
+              "value": 7.16,
+              "format": "fraction",
+              "fractions": 2
+            },
+            "teamColors": {
+              "darkMode": "#095bb6",
+              "lightMode": "#0850A0",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      },
+      {
+        "header": "Goals per match",
+        "participant": {
+          "id": 0,
+          "name": "Brighton & Hove Albion",
+          "rank": 1,
+          "ccode": "ENG",
+          "teamId": 10204,
+          "value": 3.2,
+          "stat": {
+            "name": "goals_team_match",
+            "value": 3.2,
+            "format": "fraction",
+            "fractions": 1
+          }
+        },
+        "topThree": [
+          {
+            "id": 0,
+            "name": "Brighton & Hove Albion",
+            "rank": 1,
+            "ccode": "ENG",
+            "teamId": 10204,
+            "value": 3.2,
+            "stat": {
+              "name": "goals_team_match",
+              "value": 3.2,
+              "format": "fraction",
+              "fractions": 1
+            },
+            "teamColors": {
+              "darkMode": "#095bb6",
+              "lightMode": "#0850A0",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 0,
+            "name": "Manchester City",
+            "rank": 2,
+            "ccode": "ENG",
+            "teamId": 8456,
+            "value": 2.6,
+            "stat": {
+              "name": "goals_team_match",
+              "value": 2.6,
+              "format": "fraction",
+              "fractions": 1
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      }
+    ],
+    "players": [
+      {
+        "header": "Top scorer",
+        "participant": {
+          "id": 737066,
+          "name": "Erling Haaland",
+          "rank": 1,
+          "ccode": "NOR",
+          "teamId": 8456,
+          "teamName": "Manchester City",
+          "value": 5,
+          "stat": {
+            "name": "goals",
+            "value": 5,
+            "format": "number",
+            "fractions": 0
+          }
+        },
+        "topThree": [
+          {
+            "id": 737066,
+            "name": "Erling Haaland",
+            "rank": 1,
+            "ccode": "NOR",
+            "teamId": 8456,
+            "teamName": "Manchester City",
+            "value": 5,
+            "stat": {
+              "name": "goals",
+              "value": 5,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 690107,
+            "name": "Alexander Isak",
+            "rank": 2,
+            "ccode": "SWE",
+            "teamId": 8650,
+            "teamName": "Liverpool",
+            "value": 4,
+            "stat": {
+              "name": "goals",
+              "value": 4,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#911712",
+              "lightMode": "#911712",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      },
+      {
+        "header": "Assists",
+        "participant": {
+          "id": 806552,
+          "name": "Cody Gakpo",
+          "rank": 1,
+          "ccode": "NED",
+          "teamId": 8650,
+          "teamName": "Liverpool",
+          "value": 3,
+          "stat": {
+            "name": "goal_assist",
+            "value": 3,
+            "format": "number",
+            "fractions": 0
+          }
+        },
+        "topThree": [
+          {
+            "id": 806552,
+            "name": "Cody Gakpo",
+            "rank": 1,
+            "ccode": "NED",
+            "teamId": 8650,
+            "teamName": "Liverpool",
+            "value": 3,
+            "stat": {
+              "name": "goal_assist",
+              "value": 3,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#911712",
+              "lightMode": "#911712",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 933576,
+            "name": "Antoine Semenyo",
+            "rank": 2,
+            "ccode": "GHA",
+            "teamId": 8456,
+            "teamName": "Manchester City",
+            "value": 3,
+            "stat": {
+              "name": "goal_assist",
+              "value": 3,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "fixtures": {
+    "allMatches": [
+      {
+        "round": "1",
+        "roundName": 1,
+        "pageUrl": "/matches/coventry-city-vs-arsenal/2tttz6#5795363",
+        "id": "5795363",
+        "home": {
+          "name": "Arsenal",
+          "shortName": "Arsenal",
+          "id": "9825"
+        },
+        "away": {
+          "name": "Coventry City",
+          "shortName": "Coventry",
+          "id": "8669"
+        },
+        "status": {
+          "utcTime": "2026-08-21T19:00:00Z",
+          "timezone": "",
+          "finished": true,
+          "started": true,
+          "cancelled": false,
+          "awarded": false,
+          "scoreStr": "3 - 0",
+          "reason": {
+            "short": "FT",
+            "shortKey": "fulltime_short",
+            "long": "Full-Time",
+            "longKey": "finished"
+          }
+        }
+      },
+      {
+        "round": "1",
+        "roundName": 1,
+        "pageUrl": "/matches/hull-city-vs-manchester-united/2yngir#5795364",
+        "id": "5795364",
+        "home": {
+          "name": "Hull City",
+          "shortName": "Hull",
+          "id": "8667"
+        },
+        "away": {
+          "name": "Manchester United",
+          "shortName": "Man United",
+          "id": "10260"
+        },
+        "status": {
+          "utcTime": "2026-08-22T11:30:00Z",
+          "timezone": "",
+          "finished": true,
+          "started": true,
+          "cancelled": false,
+          "awarded": false,
+          "scoreStr": "2 - 0",
+          "reason": {
+            "short": "FT",
+            "shortKey": "fulltime_short",
+            "long": "Full-Time",
+            "longKey": "finished"
+          }
+        }
+      }
+    ]
+  }
+}

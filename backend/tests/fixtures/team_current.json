@@ -1,0 +1,486 @@
+{
+  "details": {
+    "id": 8455,
+    "name": "Chelsea",
+    "country": "ENG",
+    "latestSeason": "2026/2027",
+    "sportsTeamJSONLD": {
+      "location": {
+        "@type": "Place",
+        "name": "Stamford Bridge",
+        "address": {
+          "@type": "PostalAddress",
+          "addressCountry": "England",
+          "addressLocality": "London"
+        },
+        "geo": {
+          "@type": "GeoCoordinates",
+          "latitude": "51.481711963",
+          "longitude": "-0.190974623"
+        }
+      }
+    }
+  },
+  "table": [
+    {
+      "data": {
+        "table": {
+          "all": [
+            {
+              "name": "Manchester City",
+              "shortName": "Man City",
+              "id": 8456,
+              "pageUrl": "/teams/8456/overview/manchester-city",
+              "featuredInMatch": false,
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 5,
+              "draws": 0,
+              "losses": 0,
+              "scoresStr": "13-5",
+              "goalConDiff": 8,
+              "pts": 15,
+              "idx": 1,
+              "qualColor": "#2AD572"
+            },
+            {
+              "name": "Arsenal",
+              "shortName": "Arsenal",
+              "id": 9825,
+              "pageUrl": "/teams/9825/overview/arsenal",
+              "featuredInMatch": false,
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 4,
+              "draws": 0,
+              "losses": 1,
+              "scoresStr": "8-4",
+              "goalConDiff": 4,
+              "pts": 12,
+              "idx": 2,
+              "qualColor": "#2AD572"
+            },
+            {
+              "name": "Brighton & Hove Albion",
+              "shortName": "Brighton",
+              "id": 10204,
+              "pageUrl": "/teams/10204/overview/brighton-hove-albion",
+              "featuredInMatch": false,
+              "deduction": null,
+              "ongoing": null,
+              "played": 5,
+              "wins": 3,
+              "draws": 1,
+              "losses": 1,
+              "scoresStr": "16-5",
+              "goalConDiff": 11,
+              "pts": 10,
+              "idx": 3,
+              "qualColor": "#2AD572"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "stats": {
+    "teams": [
+      {
+        "header": "FotMob rating",
+        "participant": {
+          "id": 0,
+          "name": "Chelsea",
+          "rank": 10,
+          "ccode": "ENG",
+          "teamId": 8455,
+          "value": 6.9,
+          "stat": {
+            "name": "rating_team",
+            "value": 6.9,
+            "format": "fraction",
+            "fractions": 2
+          }
+        },
+        "topThree": [
+          {
+            "id": 0,
+            "name": "Manchester City",
+            "rank": 1,
+            "ccode": "ENG",
+            "teamId": 8456,
+            "value": 7.41,
+            "stat": {
+              "name": "rating_team",
+              "value": 7.41,
+              "format": "fraction",
+              "fractions": 2
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 0,
+            "name": "Brighton & Hove Albion",
+            "rank": 2,
+            "ccode": "ENG",
+            "teamId": 10204,
+            "value": 7.16,
+            "stat": {
+              "name": "rating_team",
+              "value": 7.16,
+              "format": "fraction",
+              "fractions": 2
+            },
+            "teamColors": {
+              "darkMode": "#095bb6",
+              "lightMode": "#0850A0",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      },
+      {
+        "header": "Goals per match",
+        "participant": {
+          "id": 0,
+          "name": "Chelsea",
+          "rank": 3,
+          "ccode": "ENG",
+          "teamId": 8455,
+          "value": 2,
+          "stat": {
+            "name": "goals_team_match",
+            "value": 2,
+            "format": "fraction",
+            "fractions": 1
+          }
+        },
+        "topThree": [
+          {
+            "id": 0,
+            "name": "Brighton & Hove Albion",
+            "rank": 1,
+            "ccode": "ENG",
+            "teamId": 10204,
+            "value": 3.2,
+            "stat": {
+              "name": "goals_team_match",
+              "value": 3.2,
+              "format": "fraction",
+              "fractions": 1
+            },
+            "teamColors": {
+              "darkMode": "#095bb6",
+              "lightMode": "#0850A0",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 0,
+            "name": "Manchester City",
+            "rank": 2,
+            "ccode": "ENG",
+            "teamId": 8456,
+            "value": 2.6,
+            "stat": {
+              "name": "goals_team_match",
+              "value": 2.6,
+              "format": "fraction",
+              "fractions": 1
+            },
+            "teamColors": {
+              "darkMode": "#76b4e5",
+              "lightMode": "#69A8D8",
+              "fontDarkMode": "rgba(29, 29, 29, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      }
+    ],
+    "players": [
+      {
+        "header": "Top scorer",
+        "participant": {
+          "id": 1021382,
+          "name": "João Pedro",
+          "rank": 3,
+          "ccode": "BRA",
+          "teamId": 8455,
+          "teamName": "Chelsea",
+          "value": 3,
+          "stat": {
+            "name": "goals",
+            "value": 3,
+            "format": "number",
+            "fractions": 0
+          }
+        },
+        "topThree": [
+          {
+            "id": 1021382,
+            "name": "João Pedro",
+            "rank": 3,
+            "ccode": "BRA",
+            "teamId": 8455,
+            "teamName": "Chelsea",
+            "value": 3,
+            "stat": {
+              "name": "goals",
+              "value": 3,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#033cc1",
+              "lightMode": "#051495",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 883080,
+            "name": "Morgan Rogers",
+            "rank": 3,
+            "ccode": "ENG",
+            "teamId": 8455,
+            "teamName": "Chelsea",
+            "value": 3,
+            "stat": {
+              "name": "goals",
+              "value": 3,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#033cc1",
+              "lightMode": "#051495",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      },
+      {
+        "header": "Assists",
+        "participant": {
+          "id": 1021382,
+          "name": "João Pedro",
+          "rank": 6,
+          "ccode": "BRA",
+          "teamId": 8455,
+          "teamName": "Chelsea",
+          "value": 3,
+          "stat": {
+            "name": "goal_assist",
+            "value": 3,
+            "format": "number",
+            "fractions": 0
+          }
+        },
+        "topThree": [
+          {
+            "id": 1021382,
+            "name": "João Pedro",
+            "rank": 6,
+            "ccode": "BRA",
+            "teamId": 8455,
+            "teamName": "Chelsea",
+            "value": 3,
+            "stat": {
+              "name": "goal_assist",
+              "value": 3,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#033cc1",
+              "lightMode": "#051495",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          },
+          {
+            "id": 1096353,
+            "name": "Cole Palmer",
+            "rank": 11,
+            "ccode": "ENG",
+            "teamId": 8455,
+            "teamName": "Chelsea",
+            "value": 2,
+            "stat": {
+              "name": "goal_assist",
+              "value": 2,
+              "format": "number",
+              "fractions": 0
+            },
+            "teamColors": {
+              "darkMode": "#033cc1",
+              "lightMode": "#051495",
+              "fontDarkMode": "rgba(255, 255, 255, 1.0)",
+              "fontLightMode": "rgba(255, 255, 255, 1.0)"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "squad": {
+    "squad": [
+      {
+        "title": "coach",
+        "members": [
+          {
+            "name": "Xabi Alonso",
+            "role": {
+              "key": "coach",
+              "fallback": "Coach"
+            }
+          }
+        ]
+      },
+      {
+        "title": "keepers",
+        "members": [
+          {
+            "name": "Emiliano Martínez",
+            "shirtNumber": 1,
+            "role": {
+              "key": "keeper_long",
+              "fallback": "Keeper"
+            },
+            "positionIdsDesc": "GK"
+          },
+          {
+            "name": "Teddy Sharman-Lowe",
+            "shirtNumber": 28,
+            "role": {
+              "key": "keeper_long",
+              "fallback": "Keeper"
+            },
+            "positionIdsDesc": "GK"
+          }
+        ]
+      },
+      {
+        "title": "defenders",
+        "members": [
+          {
+            "name": "Wesley Fofana",
+            "shirtNumber": 3,
+            "role": {
+              "key": "defender_long",
+              "fallback": "Defender"
+            },
+            "positionIdsDesc": "CB"
+          },
+          {
+            "name": "Maxence Lacroix",
+            "shirtNumber": 5,
+            "role": {
+              "key": "defender_long",
+              "fallback": "Defender"
+            },
+            "positionIdsDesc": "CB"
+          }
+        ]
+      }
+    ]
+  },
+  "fixtures": {
+    "allFixtures": {
+      "fixtures": [
+        {
+          "id": 5199446,
+          "pageUrl": "/matches/chelsea-vs-western-sydney-wanderers-fc/pd1ik94#5199446",
+          "opponent": {
+            "id": 323834,
+            "name": "Western Sydney",
+            "score": 4
+          },
+          "home": {
+            "id": 8455,
+            "name": "Chelsea",
+            "score": 6
+          },
+          "away": {
+            "id": 323834,
+            "name": "Western Sydney",
+            "score": 4
+          },
+          "displayTournament": true,
+          "result": 1,
+          "notStarted": false,
+          "tournament": {
+            "name": "Club Friendlies",
+            "stage": "",
+            "leagueId": 489
+          },
+          "status": {
+            "utcTime": "2026-07-28T09:45:00.000Z",
+            "finished": true,
+            "started": true,
+            "cancelled": false,
+            "awarded": false,
+            "scoreStr": "6 - 4",
+            "reason": {
+              "short": "FT",
+              "shortKey": "fulltime_short",
+              "long": "Full-Time",
+              "longKey": "finished"
+            }
+          }
+        },
+        {
+          "id": 5199448,
+          "pageUrl": "/matches/chelsea-vs-tottenham-hotspur/2eggkj#5199448",
+          "opponent": {
+            "id": 8586,
+            "name": "Tottenham",
+            "score": 2
+          },
+          "home": {
+            "id": 8455,
+            "name": "Chelsea",
+            "score": 1
+          },
+          "away": {
+            "id": 8586,
+            "name": "Tottenham",
+            "score": 2
+          },
+          "displayTournament": true,
+          "result": -1,
+          "notStarted": false,
+          "tournament": {
+            "name": "Club Friendlies",
+            "stage": "",
+            "leagueId": 489
+          },
+          "status": {
+            "utcTime": "2026-08-01T09:45:00.000Z",
+            "finished": true,
+            "started": true,
+            "cancelled": false,
+            "awarded": false,
+            "scoreStr": "1 - 2",
+            "reason": {
+              "short": "FT",
+              "shortKey": "fulltime_short",
+              "long": "Full-Time",
+              "longKey": "finished"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

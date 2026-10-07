@@ -1,0 +1,248 @@
+{
+  "general": {
+    "matchId": "5315746",
+    "matchName": "Chelsea-vs-Manchester City_Sat, May 16, 2026, 14:00 UTC",
+    "matchRound": "final",
+    "teamColors": {
+      "darkMode": {
+        "home": "#1E4492",
+        "away": "#76b4e5"
+      },
+      "lightMode": {
+        "home": "#064b95",
+        "away": "#69A8D8"
+      },
+      "fontDarkMode": {
+        "home": "rgba(255, 255, 255, 1.0)",
+        "away": "rgba(29, 29, 29, 1.0)"
+      },
+      "fontLightMode": {
+        "home": "rgba(255, 255, 255, 1.0)",
+        "away": "rgba(255, 255, 255, 1.0)"
+      }
+    },
+    "leagueId": 908818,
+    "leagueName": "FA Cup",
+    "leagueRoundName": "final",
+    "parentLeagueId": 132,
+    "countryCode": "ENG",
+    "homeTeam": {
+      "name": "Chelsea",
+      "id": 8455
+    },
+    "awayTeam": {
+      "name": "Manchester City",
+      "id": 8456
+    },
+    "coverageLevel": "xG",
+    "matchTimeUTC": "Sat, May 16, 2026, 14:00 UTC",
+    "matchTimeUTCDate": "2026-05-16T14:00:00.000Z",
+    "started": true,
+    "finished": true,
+    "gender": "male"
+  },
+  "header": {
+    "teams": [
+      {
+        "name": "Chelsea",
+        "id": 8455,
+        "score": 0,
+        "imageUrl": "https://images.fotmob.com/image_resources/logo/teamlogo/8455_small.png",
+        "pageUrl": "/teams/8455/overview/chelsea"
+      },
+      {
+        "name": "Manchester City",
+        "id": 8456,
+        "score": 1,
+        "imageUrl": "https://images.fotmob.com/image_resources/logo/teamlogo/8456_small.png",
+        "pageUrl": "/teams/8456/overview/manchester-city"
+      }
+    ],
+    "status": {
+      "utcTime": "2026-05-16T14:00:00.000Z",
+      "timezone": "UTC",
+      "numberOfHomeRedCards": 0,
+      "numberOfAwayRedCards": 0,
+      "halfs": {
+        "firstHalfStarted": "16.05.2026 16:01:46",
+        "firstHalfEnded": "16.05.2026 16:49:58",
+        "secondHalfStarted": "16.05.2026 17:05:39",
+        "secondHalfEnded": "16.05.2026 17:55:53",
+        "firstExtraHalfStarted": "",
+        "secondExtraHalfStarted": "",
+        "gameEnded": "16.05.2026 17:55:53"
+      },
+      "finished": true,
+      "started": true,
+      "cancelled": false,
+      "awarded": false,
+      "scoreStr": "0 - 1",
+      "reason": {
+        "short": "FT",
+        "shortKey": "fulltime_short",
+        "long": "Full-Time",
+        "longKey": "finished"
+      },
+      "whoLostOnPenalties": null,
+      "whoLostOnAggregated": ""
+    }
+  },
+  "content": {
+    "stats": {
+      "Periods": {
+        "All": {
+          "stats": [
+            {
+              "title": "Top stats",
+              "key": "top_stats",
+              "stats": [
+                {
+                  "title": "Ball possession",
+                  "key": "BallPossesion",
+                  "stats": [
+                    44,
+                    56
+                  ],
+                  "format": "integer",
+                  "type": "graph",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Expected goals (xG)",
+                  "key": "expected_goals",
+                  "stats": [
+                    "0.83",
+                    "0.93"
+                  ],
+                  "format": "double",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Total shots",
+                  "key": "total_shots",
+                  "stats": [
+                    7,
+                    9
+                  ],
+                  "format": "integer",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Shots on target",
+                  "key": "ShotsOnTarget",
+                  "stats": [
+                    1,
+                    4
+                  ],
+                  "format": "integer",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Touches in opposition box",
+                  "key": "touches_opp_box",
+                  "stats": [
+                    19,
+                    27
+                  ],
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Big chances",
+                  "key": "big_chance",
+                  "stats": [
+                    0,
+                    1
+                  ],
+                  "format": "integer",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Big chances missed",
+                  "key": "big_chance_missed_title",
+                  "stats": [
+                    0,
+                    1
+                  ],
+                  "type": "text",
+                  "highlighted": "home"
+                },
+                {
+                  "title": "Accurate passes",
+                  "key": "accurate_passes",
+                  "stats": [
+                    "349 (83%)",
+                    "470 (87%)"
+                  ],
+                  "format": "integerWithPercentage",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Yellow cards",
+                  "key": "yellow_cards",
+                  "stats": [
+                    3,
+                    1
+                  ],
+                  "format": "integer",
+                  "type": "text",
+                  "highlighted": "away"
+                },
+                {
+                  "title": "Corners",
+                  "key": "corners",
+                  "stats": [
+                    4,
+                    4
+                  ],
+                  "format": "integer",
+                  "type": "text",
+                  "highlighted": "equal"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    "lineup": {
+      "homeTeam": {
+        "name": "Chelsea",
+        "formation": "3-4-2-1",
+        "starters": [
+          {
+            "name": "Robert Sánchez",
+            "shirtNumber": "1",
+            "usualPlayingPositionId": 0
+          },
+          {
+            "name": "Wesley Fofana",
+            "shirtNumber": "29",
+            "usualPlayingPositionId": 1
+          }
+        ]
+      },
+      "awayTeam": {
+        "name": "Manchester City",
+        "formation": "4-4-2",
+        "starters": [
+          {
+            "name": "James Trafford",
+            "shirtNumber": "1",
+            "usualPlayingPositionId": 0
+          },
+          {
+            "name": "Matheus Nunes",
+            "shirtNumber": "27",
+            "usualPlayingPositionId": 1
+          }
+        ]
+      }
+    }
+  }
+}
